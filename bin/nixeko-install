@@ -1,0 +1,553 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────────────
+#  nixeko-install — commission your vessel
+#  Run from the NixOS ISO after cloning the nixeko repo.
+#  Usage: bash bin/nixeko-install
+# ─────────────────────────────────────────────────────────────────────────────
+
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SHIP_NAME=""
+TARGET_DISK=""
+ROOT_PART=""
+EFI_PART=""
+LUKS_ENABLED=false
+LUKS_PASS=""
+LUKS_UUID=""
+MAPPER="nixeko-vault"
+INSTALL_MODE=""   # full | dual
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'; BLU='\033[0;34m'
+CYN='\033[0;36m'; WHT='\033[1;37m'; DIM='\033[2m'; BLD='\033[1m'
+ITL='\033[3m';    RST='\033[0m'
+
+say()    { echo -e "\n${ITL}${DIM}  $*${RST}"; sleep 0.6; }
+ok()     { echo -e "${GRN}  ✓  $*${RST}"; }
+warn()   { echo -e "${YLW}  ⚠  $*${RST}"; }
+err()    { echo -e "${RED}  ✗  $*${RST}" >&2; exit 1; }
+hdr()    { echo -e "\n${BLD}${CYN}  ══  $*  ══${RST}\n"; }
+prompt() { echo -e "${WHT}${BLD}  ›  $*${RST}"; }
+rule()   { echo -e "${DIM}  ────────────────────────────────────────${RST}"; }
+
+# ── Ship art ──────────────────────────────────────────────────────────────────
+
+show_title() {
+  clear
+  echo -e "${CYN}"
+  cat << 'SHIP'
+
+     ·  ✦  ·         ·    ✦        ·   ✦  ·
+
+             ▄▄▄███████████████▄▄▄
+           ▄██▓▓░░░░░░░░░░░░░░▓▓██▄
+          ██▓░░   ◈     ◈     ◈  ░░▓██
+         ██░░░░░░░░░░░░░░░░░░░░░░░░░██
+       ▄████████████████████████████████▄
+       █▓ ░░░░░░░░░░░░░░░░░░░░░░░░░░░ ▓█
+       █▓ ░░░░░░░░░░░░░░░░░░░░░░░░░░░ ▓█
+       ▀████████████████████████████████▀
+          ██░░░░░░░░░░░░░░░░░░░░░░░░██
+           ▀▀████████▀    ▀████████▀▀
+
+     ·        ·    ✦  ·        ·    ✦  ·
+
+SHIP
+  echo -e "${RST}"
+  echo -e "  ${BLD}${WHT}N I X E K O${RST}  ${DIM}— ship commissioning protocol${RST}"
+  echo ""
+  rule
+}
+
+farewell_art() {
+  local name="$1"
+  echo -e "${CYN}"
+  cat << 'SHIP'
+
+     ✦  ·   ✦         ✦   ·  ✦        ✦
+
+             ▄▄▄███████████████▄▄▄
+           ▄██▓▓░░░░░░░░░░░░░░▓▓██▄
+          ██▓░░   ◈     ◈     ◈  ░░▓██
+         ██░░░░░░░░░░░░░░░░░░░░░░░░░██
+       ▄████████████████████████████████▄
+       █▓ ░░░░░░░░░░░░░░░░░░░░░░░░░░░ ▓█
+       █▓ ░░░░░░░░░░░░░░░░░░░░░░░░░░░ ▓█
+       ▀████████████████████████████████▀
+          ██░░░░░░░░░░░░░░░░░░░░░░░░██
+           ▀▀████████▀    ▀████████▀▀
+
+     ✦        ·   ✦  ·        ✦   ·  ✦
+
+SHIP
+  echo -e "${RST}"
+  echo -e "  ${BLD}${WHT}${name}${RST}  ${DIM}— commissioned and ready${RST}"
+  echo ""
+}
+
+# ── Guards ────────────────────────────────────────────────────────────────────
+
+check_root() {
+  [[ $EUID -eq 0 ]] || err "Must run as root. Try: sudo bash bin/nixeko-install"
+}
+
+check_environment() {
+  say "Something stirs in the deep. Systems coming online..."
+  if ! command -v nixos-install &>/dev/null; then
+    warn "nixos-install not found — are you running from the NixOS ISO?"
+    warn "This wizard is designed for the NixOS installation environment."
+    echo ""
+    prompt "Continue anyway? [y/N]"
+    read -r ans
+    [[ "${ans,,}" == "y" ]] || exit 0
+  else
+    ok "NixOS installation environment confirmed."
+  fi
+}
+
+# ── Step 1: Name your ship ─────────────────────────────────────────────────────
+
+name_ship() {
+  hdr "I. THE VESSEL"
+  say "Every ship that crosses the expanse carries a name. Whispered in logs,\n  etched in manifests. Yours will echo further than you know."
+  echo ""
+  while true; do
+    prompt "Name your vessel (hostname, no spaces):"
+    read -r SHIP_NAME
+    SHIP_NAME="${SHIP_NAME// /-}"
+    SHIP_NAME="${SHIP_NAME,,}"
+    if [[ -z "$SHIP_NAME" ]]; then
+      warn "A ship without a name is just debris."
+    elif [[ ! "$SHIP_NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+      warn "Lowercase letters, numbers, hyphens only."
+    else
+      ok "The ${BLD}${SHIP_NAME}${RST}${GRN} awaits commission."
+      break
+    fi
+  done
+}
+
+# ── Step 2: Choose the expanse ────────────────────────────────────────────────
+
+select_disk() {
+  hdr "II. THE EXPANSE"
+  say "The substrate stretches before you. Choose where the ${SHIP_NAME} shall be carved."
+  echo ""
+  echo -e "  ${DIM}Available drives:${RST}"
+  echo ""
+  lsblk -d -o NAME,SIZE,MODEL,ROTA --noheadings | while read -r name size model rota; do
+    local type="SSD"
+    [[ "$rota" == "1" ]] && type="HDD"
+    printf "    ${BLD}%-10s${RST}  ${CYN}%8s${RST}  ${DIM}%-30s  %s${RST}\n" \
+      "/dev/$name" "$size" "$model" "$type"
+  done
+  echo ""
+  while true; do
+    prompt "Target drive (e.g. sda, nvme0n1):"
+    read -r disk_input
+    TARGET_DISK="/dev/${disk_input#/dev/}"
+    if [[ -b "$TARGET_DISK" ]]; then
+      ok "Target: ${BLD}${TARGET_DISK}${RST}"
+      break
+    else
+      warn "Device ${TARGET_DISK} not found."
+    fi
+  done
+}
+
+# ── Step 3: Full conquest or shared expanse ───────────────────────────────────
+
+select_install_mode() {
+  hdr "III. TERRITORY"
+  say "Will the ${SHIP_NAME} claim the entire expanse, or sail alongside another?"
+  echo ""
+  echo -e "    ${BLD}1${RST}  Full conquest   — entire drive is yours. All prior data lost."
+  echo -e "    ${BLD}2${RST}  Shared expanse  — install alongside existing OS (dual boot)."
+  echo ""
+  while true; do
+    prompt "Choose [1/2]:"
+    read -r mode_choice
+    case "$mode_choice" in
+      1) INSTALL_MODE="full";  ok "Full conquest. The void will be reshaped."; break ;;
+      2) INSTALL_MODE="dual";  ok "Shared expanse. The old world will remain."; break ;;
+      *) warn "Choose 1 or 2." ;;
+    esac
+  done
+
+  if [[ "$INSTALL_MODE" == "dual" ]]; then
+    echo ""
+    say "The existing partition table:"
+    echo ""
+    lsblk "$TARGET_DISK" -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT
+    echo ""
+    say "You need two things: an EFI partition and a root partition for NixOS.\n  If you haven't created the NixOS partition yet, exit and use a partition\n  tool first. The EFI partition can be shared with the existing OS."
+    echo ""
+
+    while true; do
+      prompt "NixOS root partition (e.g. sda3, nvme0n1p3):"
+      read -r root_input
+      ROOT_PART="/dev/${root_input#/dev/}"
+      [[ -b "$ROOT_PART" ]] && { ok "Root: ${BLD}${ROOT_PART}${RST}"; break; }
+      warn "Partition ${ROOT_PART} not found."
+    done
+
+    echo ""
+    say "Scanning for EFI partition..."
+    EFI_PART=$(lsblk "$TARGET_DISK" -o NAME,FSTYPE --noheadings | \
+      awk '$2=="vfat"{print "/dev/"$1}' | head -1)
+
+    if [[ -n "$EFI_PART" ]]; then
+      ok "EFI partition found: ${BLD}${EFI_PART}${RST}"
+    else
+      warn "No EFI partition detected automatically."
+      while true; do
+        prompt "EFI partition (e.g. sda1, nvme0n1p1):"
+        read -r efi_input
+        EFI_PART="/dev/${efi_input#/dev/}"
+        [[ -b "$EFI_PART" ]] && { ok "EFI: ${BLD}${EFI_PART}${RST}"; break; }
+        warn "Partition ${EFI_PART} not found."
+      done
+    fi
+  fi
+}
+
+# ── Step 4: Hull integrity ─────────────────────────────────────────────────────
+
+choose_encryption() {
+  hdr "IV. HULL INTEGRITY"
+  say "The vault can be sealed. No force may breach it without the passphrase.\n  Recommended. The expanse is not always friendly."
+  echo ""
+  prompt "Seal the hull with encryption? [Y/n]:"
+  read -r enc_choice
+  if [[ "${enc_choice,,}" != "n" ]]; then
+    LUKS_ENABLED=true
+    echo ""
+    say "Choose your passphrase wisely. Lose it and the vault is lost forever."
+    echo ""
+    while true; do
+      prompt "Passphrase:"
+      read -rs LUKS_PASS; echo ""
+      prompt "Confirm passphrase:"
+      read -rs LUKS_CONFIRM; echo ""
+      if [[ "$LUKS_PASS" == "$LUKS_CONFIRM" ]]; then
+        [[ ${#LUKS_PASS} -ge 8 ]] || { warn "Passphrase too short (min 8 chars)."; continue; }
+        ok "Passphrase set. The hull will be sealed."
+        break
+      else
+        warn "Passphrases do not match. Try again."
+      fi
+    done
+  else
+    ok "No encryption. The hull remains open."
+  fi
+}
+
+# ── Step 5: Final confirmation ────────────────────────────────────────────────
+
+confirm_plan() {
+  hdr "V. FINAL MANIFEST"
+  say "Before the commission begins, review the charter."
+  echo ""
+  echo -e "    ${BLD}Ship name${RST}     ${CYN}${SHIP_NAME}${RST}"
+  echo -e "    ${BLD}Target${RST}        ${CYN}${TARGET_DISK}${RST}"
+  echo -e "    ${BLD}Mode${RST}          ${CYN}${INSTALL_MODE}${RST}"
+  if [[ "$INSTALL_MODE" == "dual" ]]; then
+    echo -e "    ${BLD}Root part${RST}     ${CYN}${ROOT_PART}${RST}"
+    echo -e "    ${BLD}EFI part${RST}      ${CYN}${EFI_PART}${RST}"
+  fi
+  if $LUKS_ENABLED; then
+    echo -e "    ${BLD}Encryption${RST}    ${GRN}LUKS2 — hull sealed${RST}"
+  else
+    echo -e "    ${BLD}Encryption${RST}    ${YLW}none${RST}"
+  fi
+  echo ""
+  if [[ "$INSTALL_MODE" == "full" ]]; then
+    echo -e "  ${RED}${BLD}  ⚠  ALL DATA ON ${TARGET_DISK} WILL BE DESTROYED.${RST}"
+    echo ""
+  fi
+  prompt "Commit to this charter? [yes/N]:"
+  read -r confirm
+  [[ "${confirm,,}" == "yes" ]] || { say "Commission aborted. The void remains unchanged."; exit 0; }
+}
+
+# ── Step 6: Shape the void ────────────────────────────────────────────────────
+
+partition_disk() {
+  if [[ "$INSTALL_MODE" != "full" ]]; then return; fi
+
+  hdr "VI. SHAPING THE VOID"
+  say "The expanse yields to form. Carving decks and holds..."
+  echo ""
+
+  # Wipe and create GPT
+  sgdisk --zap-all "$TARGET_DISK"
+  sgdisk -n 1:0:+512M  -t 1:ef00 -c 1:"EFI"  "$TARGET_DISK"
+  sgdisk -n 2:0:0       -t 2:8300 -c 2:"root" "$TARGET_DISK"
+
+  partprobe "$TARGET_DISK" 2>/dev/null || true
+  sleep 1
+
+  # Derive partition names (handles both /dev/sdX and /dev/nvme0nX)
+  if [[ "$TARGET_DISK" == *"nvme"* || "$TARGET_DISK" == *"mmc"* ]]; then
+    EFI_PART="${TARGET_DISK}p1"
+    ROOT_PART="${TARGET_DISK}p2"
+  else
+    EFI_PART="${TARGET_DISK}1"
+    ROOT_PART="${TARGET_DISK}2"
+  fi
+
+  ok "EFI:  ${EFI_PART}"
+  ok "Root: ${ROOT_PART}"
+}
+
+# ── Step 7: Seal the hull ──────────────────────────────────────────────────────
+
+seal_hull() {
+  if ! $LUKS_ENABLED; then return; fi
+
+  hdr "VII. SEALING THE HULL"
+  say "The vault takes shape. None shall enter without the passphrase."
+  echo ""
+
+  echo -n "$LUKS_PASS" | cryptsetup luksFormat \
+    --type luks2 \
+    --batch-mode \
+    --key-file=- \
+    "$ROOT_PART"
+
+  echo -n "$LUKS_PASS" | cryptsetup open \
+    --key-file=- \
+    "$ROOT_PART" \
+    "$MAPPER"
+
+  LUKS_UUID=$(blkid -s UUID -o value "$ROOT_PART")
+  ok "Hull sealed. UUID: ${DIM}${LUKS_UUID}${RST}"
+}
+
+# ── Step 8: Lay the decks ─────────────────────────────────────────────────────
+
+format_and_mount() {
+  hdr "VIII. LAYING THE DECKS"
+  say "The chambers take shape. Floors, walls, the spaces between."
+  echo ""
+
+  mkfs.fat -F 32 -n EFI "$EFI_PART" >/dev/null
+  ok "EFI formatted."
+
+  if $LUKS_ENABLED; then
+    mkfs.ext4 -L nixeko "/dev/mapper/${MAPPER}" >/dev/null
+    ok "Root formatted (inside vault)."
+    mount "/dev/mapper/${MAPPER}" /mnt
+  else
+    mkfs.ext4 -L nixeko "$ROOT_PART" >/dev/null
+    ok "Root formatted."
+    mount "$ROOT_PART" /mnt
+  fi
+
+  mkdir -p /mnt/boot
+  mount "$EFI_PART" /mnt/boot
+  ok "Decks mounted."
+}
+
+# ── Step 9: Copy the manifest ─────────────────────────────────────────────────
+
+copy_repo() {
+  hdr "IX. LOADING THE MANIFEST"
+  say "The ship's charter — every setting, every configuration — is carried aboard."
+  echo ""
+
+  mkdir -p /mnt/home/eko/Projects
+  cp -r "$REPO_DIR" /mnt/home/eko/Projects/nixeko
+  ok "Manifest loaded to ~/Projects/nixeko"
+}
+
+# ── Step 10: VPN provisioning ─────────────────────────────────────────────────
+
+setup_vpn() {
+  hdr "X. THE CLOAKING ARRAY"
+  say "A ship that moves unseen moves safely. The array accepts any OpenVPN\n  configuration — ProtonVPN, Mullvad, your own. Or skip and add later."
+  echo ""
+  prompt "Set up VPN now? [y/N]:"
+  read -r vpn_choice
+  if [[ "${vpn_choice,,}" != "y" ]]; then
+    say "The cloaking array stands by. Configure later via vpn/README.md."
+    return
+  fi
+
+  local vpn_dir="$REPO_DIR/vpn"
+  local dest_dir="/mnt/home/eko/Projects/nixeko/vpn"
+
+  echo ""
+  say "Where are your .ovpn files? Provide a path — USB mount, /tmp, anywhere."
+  say "Leave blank to skip and add manually after install."
+  echo ""
+  prompt "Path to .ovpn files (directory or leave blank):"
+  read -r ovpn_path
+
+  if [[ -n "$ovpn_path" ]]; then
+    if [[ -d "$ovpn_path" ]]; then
+      local count
+      count=$(find "$ovpn_path" -maxdepth 1 -name "*.ovpn" | wc -l)
+      if [[ "$count" -eq 0 ]]; then
+        warn "No .ovpn files found in ${ovpn_path}. Skipping."
+      else
+        cp "$ovpn_path"/*.ovpn "$dest_dir/configs/"
+        ok "${count} config(s) loaded into the array."
+      fi
+    else
+      warn "Directory not found: ${ovpn_path}. Skipping configs."
+    fi
+  fi
+
+  echo ""
+  say "Credentials bind the array to your account.\n  For ProtonVPN: use your OpenVPN credentials (not your login password).\n  Found at account.proton.me → VPN → Downloads → OpenVPN credentials."
+  echo ""
+  prompt "Enter VPN username (or leave blank to skip):"
+  read -r vpn_user
+
+  if [[ -n "$vpn_user" ]]; then
+    prompt "Enter VPN password:"
+    read -rs vpn_pass; echo ""
+    printf '%s\n%s\n' "$vpn_user" "$vpn_pass" > "$dest_dir/credentials"
+    chmod 600 "$dest_dir/credentials"
+    ok "Credentials stored. The array is armed."
+  else
+    say "No credentials set. Add them later to vpn/credentials."
+  fi
+}
+
+# ── Step 11: Chart the vessel ─────────────────────────────────────────────────
+
+generate_config() {
+  hdr "XI. CHARTING THE VESSEL"
+  say "Scanning ship systems... cataloguing drives, engines, memory cells..."
+  echo ""
+
+  nixos-generate-config --root /mnt
+  ok "Hardware manifest generated."
+
+  # Patch hostname
+  local host_file="/mnt/home/eko/Projects/nixeko/hosts/nixeko/default.nix"
+  sed -i "s/networking.hostName = \"[^\"]*\"/networking.hostName = \"${SHIP_NAME}\"/" \
+    "$host_file"
+  ok "Ship registered as: ${BLD}${SHIP_NAME}${RST}"
+
+  # Copy generated hardware-configuration.nix into the nixeko repo
+  cp /mnt/etc/nixos/hardware-configuration.nix \
+    /mnt/home/eko/Projects/nixeko/hosts/nixeko/hardware-configuration.nix
+  ok "Hardware configuration captured."
+}
+
+# ── Step 12: Detect engines ───────────────────────────────────────────────────
+
+detect_nvidia() {
+  hdr "XII. ENGINE ROOM"
+  say "Probing the drive systems... listening for the twin engines..."
+  echo ""
+
+  local intel_id nvidia_id
+  intel_id=$(lspci | grep -E "VGA.*Intel" | awk '{print $1}' | head -1)
+  nvidia_id=$(lspci | grep -E "3D.*NVIDIA|VGA.*NVIDIA" | awk '{print $1}' | head -1)
+
+  if [[ -n "$intel_id" && -n "$nvidia_id" ]]; then
+    # Convert PCI address format: 00:02.0 → PCI:0:2:0
+    local intel_nix nvidia_nix
+    intel_nix=$(echo "$intel_id" | awk -F'[:\.]' '{printf "PCI:%d:%d:%d", strtonum("0x"$1), strtonum("0x"$2), strtonum("0x"$3)}')
+    nvidia_nix=$(echo "$nvidia_id" | awk -F'[:\.]' '{printf "PCI:%d:%d:%d", strtonum("0x"$1), strtonum("0x"$2), strtonum("0x"$3)}')
+
+    local nvidia_file="/mnt/home/eko/Projects/nixeko/modules/system/nvidia.nix"
+    sed -i "s|intelBusId = \"[^\"]*\"|intelBusId = \"${intel_nix}\"|" "$nvidia_file"
+    sed -i "s|nvidiaBusId = \"[^\"]*\"|nvidiaBusId = \"${nvidia_nix}\"|" "$nvidia_file"
+
+    ok "Primary engine (Intel):  ${BLD}${intel_nix}${RST}"
+    ok "Shadow engine (NVIDIA):  ${BLD}${nvidia_nix}${RST}"
+  else
+    warn "Twin engines not detected — nvidia.nix bus IDs unchanged."
+    warn "Update manually if needed: modules/system/nvidia.nix"
+  fi
+}
+
+# ── Step 13: Patch LUKS into boot config ──────────────────────────────────────
+
+patch_luks_config() {
+  if ! $LUKS_ENABLED; then return; fi
+
+  hdr "XIII. SEALING THE BOOT VAULT"
+  say "Binding the hull seal to the boot sequence. The passphrase will be\n  requested at ignition."
+  echo ""
+
+  # nixos-generate-config may have detected LUKS — check and supplement if not
+  local hw_file="/mnt/home/eko/Projects/nixeko/hosts/nixeko/hardware-configuration.nix"
+  if ! grep -q "luks" "$hw_file"; then
+    # Inject LUKS config before the final closing brace
+    sed -i "s|^}$|  boot.initrd.luks.devices.\"${MAPPER}\" = {\n    device = \"/dev/disk/by-uuid/${LUKS_UUID}\";\n    allowDiscards = true;\n  };\n\n}|" \
+      "$hw_file"
+    ok "Hull seal patched into boot configuration."
+  else
+    ok "Hull seal already present in hardware configuration."
+  fi
+}
+
+# ── Step 14: Launch ───────────────────────────────────────────────────────────
+
+run_install() {
+  hdr "XIV. IGNITION"
+  say "All systems nominal. The ${SHIP_NAME} draws her first breath.\n  This may take a while — the void does not yield quickly."
+  echo ""
+
+  nixos-install \
+    --no-root-passwd \
+    --flake "/mnt/home/eko/Projects/nixeko#nixeko"
+
+  echo ""
+  ok "Installation complete."
+}
+
+# ── Farewell ──────────────────────────────────────────────────────────────────
+
+farewell() {
+  echo ""
+  rule
+  farewell_art "$SHIP_NAME"
+  say "The ${BLD}${SHIP_NAME}${RST}${ITL}${DIM} is yours now, Captain."
+  say "She carries everything — the manifest, the charts, the vault."
+  say "Cast off when ready."
+  echo ""
+  echo -e "  ${DIM}After reboot:${RST}"
+  echo -e "  ${CYN}  nixeko doctor${RST}          — run a full health check"
+  echo -e "  ${CYN}  nixeko theme <name>${RST}     — change the colour of the deep"
+  echo -e "  ${CYN}  nixeko wallpaper <f>${RST}    — set the viewport"
+  echo ""
+  if $LUKS_ENABLED; then
+    echo -e "  ${YLW}  Passphrase required at each launch. Guard it well.${RST}"
+    echo ""
+  fi
+  rule
+  echo ""
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+main() {
+  show_title
+  check_root
+  check_environment
+  name_ship
+  select_disk
+  select_install_mode
+  choose_encryption
+  confirm_plan
+  partition_disk
+  seal_hull
+  format_and_mount
+  copy_repo
+  setup_vpn
+  generate_config
+  detect_nvidia
+  patch_luks_config
+  run_install
+  farewell
+}
+
+main "$@"

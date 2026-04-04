@@ -1,0 +1,23 @@
+services:
+  pihole:
+    image: pihole/pihole:latest
+    container_name: pihole
+    hostname: pihole
+    ports:
+      - "127.0.0.1:53:53/tcp"    # DNS — loopback only, no LAN exposure
+      - "127.0.0.1:53:53/udp"
+      - "127.0.0.1:8080:80/tcp"  # Web UI → http://localhost:8080/admin
+    environment:
+      TZ: "Europe/Berlin"
+      WEBPASSWORD: "${PIHOLE_PASSWORD:-nixeko}"
+      PIHOLE_DNS_1: "1.1.1.1"
+      PIHOLE_DNS_2: "9.9.9.9"
+      DNSSEC: "true"
+      VIRTUAL_HOST: "pihole.local"
+      DNSMASQ_LISTENING: "local"
+    volumes:
+      - "./data/pihole:/etc/pihole"
+      - "./data/dnsmasq.d:/etc/dnsmasq.d"
+    cap_add:
+      - NET_ADMIN
+    restart: unless-stopped

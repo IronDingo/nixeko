@@ -1,0 +1,17 @@
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "127.0.0.1:8888:8080"   # Web UI → http://localhost:8888
+    volumes:
+      - "./data:/etc/searxng"
+    environment:
+      SEARXNG_BASE_URL: "http://localhost:8888/"
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    restart: unless-stopped

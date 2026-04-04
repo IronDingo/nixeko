@@ -1,0 +1,401 @@
+#!/usr/bin/env bash
+# nixeko — NixOS management CLI
+# Usage: nixeko <command> [args]
+
+NIXEKO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FLAKE="$NIXEKO_DIR#nixeko"
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+YLW='\033[1;33m'
+BLU='\033[0;34m'
+CYN='\033[0;36m'
+BLD='\033[1m'
+DIM='\033[2m'
+RST='\033[0m'
+
+ok()   { echo -e "  ${GRN}✓${RST}  $*"; }
+err()  { echo -e "  ${RED}✗${RST}  $*" >&2; }
+warn() { echo -e "  ${YLW}!${RST}  $*"; }
+info() { echo -e "  ${BLU}→${RST}  $*"; }
+hdr()  { echo -e "\n${BLD}${CYN}  $*${RST}\n"; }
+dim()  { echo -e "  ${DIM}$*${RST}"; }
+
+usage() {
+  cat <<EOF
+
+${BLD}nixeko${RST} — NixOS management CLI
+
+${BLD}SYSTEM${RST}
+  update              Flake update + rebuild
+  rebuild             Rebuild and switch
+  rollback            Revert to previous generation
+  generations         List all generations
+
+${BLD}CUSTOMISE${RST}
+  theme <name>        Switch base16 theme + rebuild
+  wallpaper <file>    Switch wallpaper + rebuild
+  install <pkg>       Add package to home config + rebuild
+  remove <pkg>        Remove package from home config + rebuild
+
+${BLD}INFO${RST}
+  doctor              Full system health check
+  rescue              Print rescue / recovery reference
+
+${BLD}THEMES${RST}  (nixeko theme <name>)
+  nes               NES palette          ← default
+  catppuccin-mocha  purple pastels
+  gruvbox-dark-hard warm amber
+  nord              arctic blue
+  tokyo-night-dark  tokyo night
+  rose-pine         warm rose
+  kanagawa          japanese ink
+  gameboy           classic green
+
+EOF
+}
+
+# ── update ────────────────────────────────────────────────────────────────────
+
+cmd_update() {
+  hdr "Updating nixeko"
+  info "Pulling flake inputs..."
+  cd "$NIXEKO_DIR" && nix flake update
+  info "Rebuilding..."
+  sudo nixos-rebuild switch --flake "$FLAKE"
+  ok "Done"
+}
+
+# ── rebuild ───────────────────────────────────────────────────────────────────
+
+cmd_rebuild() {
+  hdr "Rebuilding nixeko"
+  sudo nixos-rebuild switch --flake "$FLAKE"
+  ok "Done"
+}
+
+# ── rollback ──────────────────────────────────────────────────────────────────
+
+cmd_rollback() {
+  hdr "Rolling back"
+  warn "Current generation will be replaced by the previous one."
+  echo -n "  Continue? [y/N] "
+  read -r ans
+  [[ "${ans,,}" == "y" ]] || { info "Aborted."; exit 0; }
+  sudo nixos-rebuild switch --rollback
+  ok "Rolled back. Run 'nixeko generations' to confirm."
+}
+
+# ── generations ───────────────────────────────────────────────────────────────
+
+cmd_generations() {
+  hdr "System generations"
+  sudo nix-env --list-generations --profile /nix/var/nix/profiles/system
+}
+
+# ── theme ─────────────────────────────────────────────────────────────────────
+
+cmd_theme() {
+  local name="$1"
+  if [ -z "$name" ]; then
+    err "Usage: nixeko theme <name>"
+    dim "Browse: https://github.com/tinted-theming/schemes"
+    exit 1
+  fi
+  local theme_file="$NIXEKO_DIR/modules/system/theme.nix"
+  info "Switching theme → $name"
+  sed -i "s|base16Scheme = \"\${pkgs.base16-schemes}/share/themes/[^\"]*\"|base16Scheme = \"\${pkgs.base16-schemes}/share/themes/${name}.yaml\"|" \
+    "$theme_file"
+  info "Rebuilding..."
+  sudo nixos-rebuild switch --flake "$FLAKE"
+  ok "Theme: $name"
+}
+
+# ── wallpaper ─────────────────────────────────────────────────────────────────
+
+cmd_wallpaper() {
+  local name="$1"
+  if [ -z "$name" ]; then
+    err "Usage: nixeko wallpaper <filename>"
+    echo ""
+    dim "Available:"
+    ls "$NIXEKO_DIR/wallpapers/" | sed 's/^/    /'
+    exit 1
+  fi
+  local wp="$NIXEKO_DIR/wallpapers/$name"
+  if [ ! -f "$wp" ]; then
+    err "Not found: $wp"
+    dim "Run 'nixeko wallpaper' with no args to list available."
+    exit 1
+  fi
+  local theme_file="$NIXEKO_DIR/modules/system/theme.nix"
+  info "Switching wallpaper → $name"
+  sed -i "s|image = ../../wallpapers/[^;]*;|image = ../../wallpapers/${name};|" "$theme_file"
+  # Also update the swaybg exec-once in hyprland.nix
+  sed -i "s|swaybg -i ~/Projects/nixeko/wallpapers/[^ ]* |swaybg -i ~/Projects/nixeko/wallpapers/${name} |" \
+    "$NIXEKO_DIR/home/hyprland.nix"
+  info "Rebuilding..."
+  sudo nixos-rebuild switch --flake "$FLAKE"
+  ok "Wallpaper: $name"
+}
+
+# ── install ───────────────────────────────────────────────────────────────────
+
+cmd_install() {
+  local pkg="$1"
+  if [ -z "$pkg" ]; then
+    err "Usage: nixeko install <package>"
+    exit 1
+  fi
+  local pkgs_file="$NIXEKO_DIR/home/packages.nix"
+  info "Adding $pkg to home packages..."
+  # Insert before the closing ]; of home.packages
+  sed -i "s|^  \];$|    $pkg\n  \];|" "$pkgs_file"
+  info "Rebuilding..."
+  sudo nixos-rebuild switch --flake "$FLAKE"
+  ok "Installed: $pkg"
+}
+
+# ── remove ────────────────────────────────────────────────────────────────────
+
+cmd_remove() {
+  local pkg="$1"
+  if [ -z "$pkg" ]; then
+    err "Usage: nixeko remove <package>"
+    exit 1
+  fi
+  local pkgs_file="$NIXEKO_DIR/home/packages.nix"
+  if ! grep -qE "^\s+${pkg}\s*$" "$pkgs_file"; then
+    err "Package '$pkg' not found as a standalone line in home/packages.nix"
+    warn "Edit manually: $pkgs_file"
+    exit 1
+  fi
+  info "Removing $pkg..."
+  sed -i "/^\s*${pkg}\s*$/d" "$pkgs_file"
+  info "Rebuilding..."
+  sudo nixos-rebuild switch --flake "$FLAKE"
+  ok "Removed: $pkg"
+}
+
+# ── doctor ────────────────────────────────────────────────────────────────────
+
+cmd_doctor() {
+  hdr "nixeko doctor"
+  local issues=0
+
+  chk() {
+    printf "  %-22s" "$1"
+  }
+
+  # NVIDIA
+  chk "NVIDIA"
+  if nvidia-smi &>/dev/null; then
+    ok "$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
+  else
+    err "nvidia-smi failed — check modules/system/nvidia.nix bus IDs"; ((issues++))
+  fi
+
+  # Power profile
+  chk "Power profile"
+  local profile
+  profile=$(powerprofilesctl get 2>/dev/null || echo "unavailable")
+  ok "$profile  (nixeko theme for display, Super+Shift+Ctrl+Q to change)"
+
+  # Battery
+  chk "Battery"
+  local bat_path
+  bat_path=$(ls /sys/class/power_supply/BAT*/capacity 2>/dev/null | head -1)
+  if [ -n "$bat_path" ]; then
+    local cap status
+    cap=$(cat "$bat_path")
+    status=$(cat "${bat_path/capacity/status}" 2>/dev/null || echo "")
+    if [ "$cap" -lt 15 ]; then
+      err "${cap}% (${status}) — critical"; ((issues++))
+    elif [ "$cap" -lt 30 ]; then
+      warn "${cap}% (${status})"
+    else
+      ok "${cap}% (${status})"
+    fi
+  else
+    dim "no battery detected (desktop?)"
+  fi
+
+  # Tailscale
+  chk "Tailscale"
+  if tailscale status &>/dev/null; then
+    ok "connected ($(tailscale ip 2>/dev/null | head -1))"
+  else
+    warn "not connected — run: tailscale up"
+  fi
+
+  # Syncthing
+  chk "Syncthing"
+  if systemctl is-active --quiet syncthing; then
+    ok "running"
+  else
+    err "not running"; ((issues++))
+  fi
+
+  # Docker
+  chk "Docker"
+  if systemctl is-active --quiet docker; then
+    local containers
+    containers=$(docker ps --format '{{.Names}}' 2>/dev/null | tr '\n' ' ')
+    [ -n "$containers" ] && ok "running  [$containers]" || ok "running (no containers)"
+  else
+    warn "not running — start with: sudo systemctl start docker"
+  fi
+
+  # Pi-hole
+  chk "Pi-hole"
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^pihole$'; then
+    ok "running (localhost:8080/admin)"
+  else
+    warn "not running — Super+Shift+Ctrl+P → Start Pi-hole"
+  fi
+
+  # VPN
+  chk "VPN"
+  local active_vpn
+  active_vpn=$(systemctl list-units --type=service --state=active --no-legend 2>/dev/null \
+    | awk '{print $1}' | grep '^openvpn-' | head -1)
+  if [ -n "$active_vpn" ]; then
+    ok "connected (${active_vpn%.service})"
+  else
+    warn "not connected — Super+Shift+Ctrl+V to connect"
+  fi
+
+  # VPN credentials
+  chk "VPN credentials"
+  if [ -f /etc/openvpn/vpn-credentials ]; then
+    ok "/etc/openvpn/vpn-credentials"
+  elif [ -f "$NIXEKO_DIR/vpn/credentials" ]; then
+    warn "file exists but not deployed — run: nixeko rebuild"
+  else
+    warn "not configured — see: $NIXEKO_DIR/vpn/README.md"
+  fi
+
+  # Flake age
+  chk "Flake freshness"
+  local lock_file="$NIXEKO_DIR/flake.lock"
+  if [ -f "$lock_file" ]; then
+    local age=$(( ($(date +%s) - $(stat -c %Y "$lock_file")) / 86400 ))
+    if [ "$age" -lt 7 ]; then
+      ok "updated ${age}d ago"
+    else
+      warn "last updated ${age}d ago — run: nixeko update"
+    fi
+  else
+    warn "no flake.lock yet — run: nixeko update"
+  fi
+
+  # Disk
+  chk "Disk space"
+  local used avail pct
+  used=$(df -h / | awk 'NR==2{print $5}')
+  avail=$(df -h / | awk 'NR==2{print $4}')
+  pct=${used%\%}
+  if [ "$pct" -lt 80 ]; then
+    ok "${avail} free (${used} used)"
+  else
+    warn "${avail} free (${used} used — getting full)"; ((issues++))
+  fi
+
+  # Failed units
+  chk "Systemd units"
+  local failed
+  failed=$(systemctl --failed --no-legend 2>/dev/null | grep -c "failed" || echo 0)
+  if [ "$failed" -eq 0 ]; then
+    ok "all clear"
+  else
+    err "$failed failed — run: systemctl --failed"; ((issues++))
+  fi
+
+  # Generations
+  chk "Generations"
+  local gen_count
+  gen_count=$(sudo nix-env --list-generations --profile /nix/var/nix/profiles/system 2>/dev/null | wc -l)
+  ok "$gen_count available  (nixeko rollback to revert)"
+
+  # Nix store
+  chk "Nix store"
+  if nix store verify --all &>/dev/null; then
+    ok "healthy"
+  else
+    warn "issues detected — run: nix store repair"
+  fi
+
+  echo ""
+  if [ "$issues" -eq 0 ]; then
+    ok "${BLD}All clear.${RST}"
+  else
+    err "${BLD}${issues} issue(s) need attention.${RST}"
+    dim "Run 'nixeko rescue' for recovery options."
+  fi
+}
+
+# ── rescue ────────────────────────────────────────────────────────────────────
+
+cmd_rescue() {
+  cat <<EOF
+
+${BLD}${CYN}  nixeko rescue reference${RST}
+  ${DIM}────────────────────────────────────────────${RST}
+
+${BLD}  GUI broken / can't log in${RST}
+    Ctrl+Alt+F2             Switch to TTY
+    nixeko rollback         Revert last change
+    nixeko generations      See what you can roll back to
+
+${BLD}  Rollback from TTY${RST}
+    sudo nixos-rebuild switch --rollback
+
+${BLD}  System won't boot${RST}
+    → At boot: press Space at the systemd-boot menu
+      Select a previous generation from the list
+
+${BLD}  Nuclear (boot NixOS ISO)${RST}
+    cryptsetup open /dev/sdXY nixeko-vault   # if LUKS
+    mount /dev/mapper/nixeko-vault /mnt
+    mount /dev/sdX1 /mnt/boot                # EFI partition
+    nixos-enter --root /mnt
+    nixos-rebuild switch --rollback
+    # or edit ~/Projects/nixeko and rebuild
+
+${BLD}  VPN not connecting${RST}
+    sudo systemctl status openvpn-<name>
+    sudo journalctl -u openvpn-<name> -n 50
+    # Known-working: ch-951-systemd-fix, fr-01-fixed
+
+${BLD}  Display / NVIDIA broken${RST}
+    nvidia-offload <app>          Force NVIDIA for one app
+    sudo systemctl restart display-manager
+
+${BLD}  Useful diagnostics${RST}
+    nixeko doctor                 Full health check
+    systemctl --failed            Failed units
+    journalctl -p err -b          Errors since last boot
+    journalctl -fu <unit>         Follow a unit's log
+
+${DIM}  Config lives at: ~/Projects/nixeko/${RST}
+${DIM}  All keybinds:    ~/Projects/nixeko/HANDOFF.md${RST}
+
+EOF
+}
+
+# ── dispatch ──────────────────────────────────────────────────────────────────
+
+case "${1:-}" in
+  update)      cmd_update ;;
+  rebuild)     cmd_rebuild ;;
+  rollback)    cmd_rollback ;;
+  generations) cmd_generations ;;
+  theme)       cmd_theme "${2:-}" ;;
+  wallpaper)   cmd_wallpaper "${2:-}" ;;
+  install)     cmd_install "${2:-}" ;;
+  remove)      cmd_remove "${2:-}" ;;
+  doctor)      cmd_doctor ;;
+  rescue)      cmd_rescue ;;
+  help|--help|-h|"") usage ;;
+  *)           err "Unknown command: $1"; usage; exit 1 ;;
+esac

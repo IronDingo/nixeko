@@ -1,0 +1,16 @@
+# VPN — keep your configs and credentials local, never commit
+vpn/configs/*.ovpn
+vpn/credentials
+
+# Docker runtime data
+docker/*/data/
+
+# Local env overrides
+docker/**/.env
+
+# Nix build outputs
+result
+result-*
+
+# Editor
+.direnv/
