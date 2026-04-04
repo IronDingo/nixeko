@@ -20,6 +20,7 @@ MAPPER="nixeko-vault"
 INSTALL_MODE=""      # full | dual
 HW_MODULE=""         # nixos-hardware module name, or empty
 HAS_NVIDIA=false
+IS_VM=false
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'; BLU='\033[0;34m'
@@ -98,6 +99,8 @@ check_root() {
 
 check_environment() {
   say "Something stirs in the deep. Systems coming online..."
+  systemd-detect-virt --quiet 2>/dev/null && IS_VM=true || true
+  $IS_VM && dim "Virtual environment detected. Hardware-specific steps will be skipped."
   if ! command -v nixos-install &>/dev/null; then
     warn "nixos-install not found — are you running from the NixOS ISO?"
     warn "This wizard is designed for the NixOS installation environment."
@@ -165,10 +168,8 @@ detect_hardware_module() {
   say "Reading the machine's manifest. Identifying the hull class..."
   echo ""
 
-  # Skip in VM — dmidecode hangs or returns garbage in virtual environments
-  if systemd-detect-virt --quiet 2>/dev/null; then
-    dim "Virtual environment detected — skipping hardware module scan."
-    dim "On real hardware this step auto-detects your machine."
+  if $IS_VM; then
+    dim "Skipping on virtual hardware — runs on real machines only."
     return
   fi
 
@@ -225,6 +226,7 @@ detect_hardware_module() {
 
 detect_nvidia_question() {
   [[ "$PROFILE" == "nixeko-beacon" ]] && return
+  $IS_VM && return
 
   hdr "IV. ENGINE ROOM"
   say "Does this vessel carry twin engines? Intel iGPU + NVIDIA GPU (hybrid / Optimus)?"
@@ -580,6 +582,8 @@ generate_config() {
 # ── Step 12: Detect engines ───────────────────────────────────────────────────
 
 detect_nvidia() {
+  $HAS_NVIDIA || return
+
   hdr "XV. ENGINE ROOM"
   say "Probing the drive systems... listening for the twin engines..."
   echo ""
