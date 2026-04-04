@@ -152,4 +152,10 @@ cd ~/Projects/nixeko/docker/pihole  && docker compose up -d
 nixeko doctor   # check everything is healthy
 ```
 
-See [TESTING.md](TESTING.md) to validate the config in a VM before deploying.
+---
+
+## Docs
+
+- [TESTING.md](TESTING.md) — validate in a VM before deploying to real hardware
+- [docs/post-install.md](docs/post-install.md) — everything to do after first boot
+- [docs/vpn.md](docs/vpn.md) — VPN setup, backup, and reinstall guide
