@@ -164,9 +164,16 @@ detect_hardware_module() {
   say "Reading the machine's manifest. Identifying the hull class..."
   echo ""
 
+  # Skip in VM — dmidecode hangs or returns garbage in virtual environments
+  if systemd-detect-virt --quiet 2>/dev/null; then
+    dim "Virtual environment detected — skipping hardware module scan."
+    dim "On real hardware this step auto-detects your machine."
+    return
+  fi
+
   local product vendor
-  product=$(dmidecode -s system-product-name 2>/dev/null | tr '[:upper:]' '[:lower:]' | xargs)
-  vendor=$(dmidecode -s system-manufacturer 2>/dev/null | tr '[:upper:]' '[:lower:]' | xargs)
+  product=$(dmidecode -s system-product-name 2>/dev/null | tr '[:upper:]' '[:lower:]' | xargs || echo "")
+  vendor=$(dmidecode -s system-manufacturer 2>/dev/null | tr '[:upper:]' '[:lower:]' | xargs || echo "")
 
   # Known hardware module map
   local detected=""
