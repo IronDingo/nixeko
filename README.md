@@ -44,11 +44,15 @@ Or just leave `eko` — it's a username, not an identity.
 
 Boot a NixOS installer USB, then:
 
+> **Graphical ISO:** ignore the Calamares GUI installer — open the terminal emulator instead (it's in the taskbar or app menu), then run:
+
 ```bash
 nix-shell -p git
 git clone https://github.com/IronDingo/nixeko
 sudo bash nixeko/bin/nixeko-install
 ```
+
+> **Minimal ISO:** you're already in a terminal. Same commands.
 
 The wizard handles partitioning, LUKS encryption, NVIDIA detection, and first boot setup. Name your ship.
 

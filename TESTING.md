@@ -75,7 +75,7 @@ nix build .#nixosConfigurations.nixeko-vm.config.system.build.toplevel 2>&1 | ta
 
 ## Step 5 — Test the installer wizard
 
-Boot a NixOS ISO in virt-manager (or use an existing NixOS shell), then:
+Boot a NixOS ISO in virt-manager. If using the **graphical ISO**, ignore the Calamares installer — open the terminal emulator from the taskbar instead. Then:
 
 ```bash
 nix-shell -p git
