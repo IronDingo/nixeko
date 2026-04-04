@@ -16,6 +16,11 @@
     executable = true;
   };
 
+  home.file.".local/bin/docker-menu" = {
+    source     = ./scripts/docker-menu.sh;
+    executable = true;
+  };
+
   # Nautilus sidebar bookmarks — quick access to key locations
   home.file.".config/gtk-3.0/bookmarks".text = ''
     file:///home/eko/Projects/nixeko            ⚙ nixeko config

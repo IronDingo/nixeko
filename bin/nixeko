@@ -31,6 +31,7 @@ ${BLD}SYSTEM${RST}
   rebuild             Rebuild and switch
   rollback            Revert to previous generation
   generations         List all generations
+  clean               Garbage collect + optimise store
 
 ${BLD}CUSTOMISE${RST}
   theme <name>        Switch base16 theme + rebuild
@@ -175,6 +176,19 @@ cmd_remove() {
   info "Rebuilding..."
   sudo nixos-rebuild switch --flake "$FLAKE"
   ok "Removed: $pkg"
+}
+
+# ── clean ─────────────────────────────────────────────────────────────────────
+
+cmd_clean() {
+  hdr "Cleaning nixeko"
+  info "Removing old generations and store paths..."
+  sudo nix-collect-garbage -d
+  info "Optimising nix store..."
+  nix store optimise
+  info "Removing stale boot entries..."
+  sudo /run/current-system/bin/switch-to-configuration boot
+  ok "Done — run 'nixeko doctor' to check disk space."
 }
 
 # ── doctor ────────────────────────────────────────────────────────────────────
@@ -394,6 +408,7 @@ case "${1:-}" in
   wallpaper)   cmd_wallpaper "${2:-}" ;;
   install)     cmd_install "${2:-}" ;;
   remove)      cmd_remove "${2:-}" ;;
+  clean)       cmd_clean ;;
   doctor)      cmd_doctor ;;
   rescue)      cmd_rescue ;;
   help|--help|-h|"") usage ;;

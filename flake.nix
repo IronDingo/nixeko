@@ -12,9 +12,11 @@
     nixos-hardware.url = "github:nixos/nixos-hardware";
 
     stylix.url = "github:danth/stylix";
+
+    nur.url = "github:nix-community/NUR";
   };
 
-  outputs = { self, nixpkgs, home-manager, nixos-hardware, stylix, ... }:
+  outputs = { self, nixpkgs, home-manager, nixos-hardware, stylix, nur, ... }:
   let
     homeManagerModule = {
       home-manager.useGlobalPkgs = true;
@@ -24,11 +26,13 @@
 
     sharedModules = [
       stylix.nixosModules.stylix
+      nur.nixosModules.nur
       ./modules/system/base.nix
       ./modules/system/theme.nix
       ./modules/system/security.nix
       ./modules/system/networking.nix
       ./modules/system/services.nix
+      ./modules/system/printing.nix
       ./modules/system/vpn.nix
       home-manager.nixosModules.home-manager
       homeManagerModule

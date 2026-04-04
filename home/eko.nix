@@ -9,6 +9,9 @@
     ./neovim.nix
     ./walker.nix
     ./scripts.nix
+    ./firefox.nix
+    ./gtk.nix
+    ./mime.nix
   ];
 
   home.username = "eko";

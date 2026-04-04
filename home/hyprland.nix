@@ -63,7 +63,8 @@
         "$mod SHIFT, slash,   exec, 1password"
         "$mod SHIFT, M,       exec, spotify"
         "$mod SHIFT, T,       exec, $terminal -e btop"
-        "$mod SHIFT, D,       exec, $terminal -e lazydocker"
+        "$mod SHIFT, D,       exec, bash ~/.local/bin/docker-menu"
+        "$mod SHIFT CTRL, L,  exec, $terminal -e lazydocker"
 
         # AI
         "$mod SHIFT, A,         exec, firefox --new-window https://chat.deepseek.com"

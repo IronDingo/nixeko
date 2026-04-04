@@ -90,6 +90,7 @@ nixeko theme <name>     switch base16 theme + rebuild
 nixeko wallpaper <f>    switch wallpaper + rebuild
 nixeko install <pkg>    add package + rebuild
 nixeko remove <pkg>     remove package + rebuild
+nixeko clean            garbage collect + optimise store
 nixeko doctor           full system health check
 nixeko rescue           recovery reference
 ```
@@ -111,7 +112,8 @@ nixeko rescue           recovery reference
 | Super+Shift+G | Signal |
 | Super+Shift+M | Spotify |
 | Super+Shift+T | btop |
-| Super+Shift+D | Lazydocker |
+| Super+Shift+D | Docker compose menu |
+| Super+Shift+Ctrl+L | Lazydocker |
 | Super+Shift+S | SearXNG (localhost:8888) |
 | Super+Shift+H | Home server (192.168.1.107) |
 | Super+Shift+F | Jellyfin (localhost:8096) |
