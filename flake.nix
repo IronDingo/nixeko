@@ -1,5 +1,5 @@
 {
-  description = "nixeko — eko's NixOS configuration";
+  description = "nixeko — a self-contained NixOS configuration";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -19,7 +19,7 @@
     homeManagerModule = {
       home-manager.useGlobalPkgs = true;
       home-manager.useUserPackages = true;
-      home-manager.users.eko = import ./home/eko.nix;
+      home-manager.users.eko = import ./home/eko.nix;  # CHANGE: replace "eko" with your username (also update hosts/nixeko/default.nix)
     };
 
     sharedModules = [
@@ -37,7 +37,7 @@
   {
     nixosConfigurations = {
 
-      # ── Main machine — Dell G15 5530 (Intel + NVIDIA RTX 4060) ──────────────
+      # ── Main machine — Intel + NVIDIA (bus IDs auto-patched by install wizard) ─
       nixeko = nixpkgs.lib.nixosSystem {
         system = "x86_64-linux";
         modules = sharedModules ++ [

@@ -26,6 +26,20 @@ Hyprland. Stylix theming. ProtonVPN. Pi-hole. SearXNG. One CLI to manage it all.
 
 ---
 
+## Forking
+
+nixeko uses `eko` as the username throughout. Before installing as your own:
+
+1. Rename `home/eko.nix` to `home/<yourname>.nix`
+2. Update `flake.nix` — change `users.eko` and the import path
+3. Update `hosts/nixeko/default.nix` — change `users.users.eko` and the `polkitPolicyOwners`
+4. Set your git identity in `home/shell.nix`
+5. Set your timezone in `hosts/nixeko/default.nix`
+
+Or just leave `eko` — it's a username, not an identity.
+
+---
+
 ## Install
 
 Boot a NixOS installer USB, then:

@@ -1,9 +1,9 @@
 { config, pkgs, ... }:
 
-# Dell G15 5530 — Intel iGPU + NVIDIA RTX 4060 (Optimus hybrid)
-# PRIME offload: Intel runs the display, NVIDIA handles heavy workloads on demand.
+# Intel + NVIDIA hybrid (Optimus / PRIME offload)
+# Intel iGPU drives the display. NVIDIA handles heavy workloads on demand.
+# Bus IDs are patched automatically by the install wizard (lspci detection).
 # Run GPU-intensive apps with: nvidia-offload <app>
-# Or set PRIME render offload per-app in your bindings.
 
 {
   hardware.graphics = {
