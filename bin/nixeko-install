@@ -9,6 +9,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SHIP_NAME=""
+PROFILE=""           # nixeko | nixeko-dinghy | nixeko-beacon
 TARGET_DISK=""
 ROOT_PART=""
 EFI_PART=""
@@ -16,7 +17,9 @@ LUKS_ENABLED=false
 LUKS_PASS=""
 LUKS_UUID=""
 MAPPER="nixeko-vault"
-INSTALL_MODE=""   # full | dual
+INSTALL_MODE=""      # full | dual
+HW_MODULE=""         # nixos-hardware module name, or empty
+HAS_NVIDIA=false
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'; BLU='\033[0;34m'
@@ -128,10 +131,121 @@ name_ship() {
   done
 }
 
-# ── Step 2: Choose the expanse ────────────────────────────────────────────────
+# ── Step 2: Choose your loadout ───────────────────────────────────────────────
+
+select_profile() {
+  hdr "II. THE LOADOUT"
+  say "What kind of vessel are you commissioning?"
+  echo ""
+  echo -e "    ${BLD}1${RST}  ${CYN}nixeko${RST}         Full Hyprland — all stations manned. ${DIM}(default)${RST}"
+  echo -e "    ${BLD}2${RST}  ${CYN}nixeko-dinghy${RST}  BSPWM — nimble craft, same waters, lighter hull."
+  echo -e "    ${BLD}3${RST}  ${CYN}nixeko-beacon${RST}  Headless — hull and engines only. No bridge."
+  echo ""
+  while true; do
+    prompt "Choose [1/2/3] (default: 1):"
+    read -r profile_choice
+    profile_choice="${profile_choice:-1}"
+    case "$profile_choice" in
+      1) PROFILE="nixeko";         ok "Full vessel. All hands on deck."; break ;;
+      2) PROFILE="nixeko-dinghy";  ok "The dinghy. Swift, lean, ready."; break ;;
+      3) PROFILE="nixeko-beacon";  ok "Beacon mode. Silent running."; break ;;
+      *) warn "Choose 1, 2, or 3." ;;
+    esac
+  done
+}
+
+# ── Step 3: Hardware detection ────────────────────────────────────────────────
+
+detect_hardware_module() {
+  # Skip for beacon (headless — hardware modules less critical)
+  [[ "$PROFILE" == "nixeko-beacon" ]] && return
+
+  hdr "III. HULL SCAN"
+  say "Reading the machine's manifest. Identifying the hull class..."
+  echo ""
+
+  local product vendor
+  product=$(dmidecode -s system-product-name 2>/dev/null | tr '[:upper:]' '[:lower:]' | xargs)
+  vendor=$(dmidecode -s system-manufacturer 2>/dev/null | tr '[:upper:]' '[:lower:]' | xargs)
+
+  # Known hardware module map
+  local detected=""
+  case "$product" in
+    *"g15 5530"*|*"g15-5530"*)     detected="dell-g15-5530" ;;
+    *"g15 5520"*|*"g15-5520"*)     detected="dell-g15-5520" ;;
+    *"xps 15"*)                    detected="dell-xps-15-9510" ;;
+    *"xps 13"*)                    detected="dell-xps-13-9310" ;;
+    *"thinkpad x1 carbon"*)        detected="lenovo-thinkpad-x1-carbon-gen11" ;;
+    *"thinkpad t14"*)              detected="lenovo-thinkpad-t14-amd-gen4" ;;
+    *"thinkpad p1"*)               detected="lenovo-thinkpad-p1-gen6" ;;
+    *"framework"*|*"13th gen"*"framework"*) detected="framework-13-7040-amd" ;;
+    *"surface pro"*)               detected="microsoft-surface-pro-9" ;;
+    *"pavilion"*|*"dm1"*)          detected="hp-pavilion-gaming-15-dk0xxx" ;;
+    *"envy"*)                      detected="hp-envy-x360-13-ay0xxx" ;;
+    *"zephyrus"*)                  detected="asus-zephyrus-g14-ga401" ;;
+  esac
+
+  if [[ -n "$detected" ]]; then
+    ok "Hull class detected: ${BLD}${product}${RST}"
+    ok "Hardware module:     ${BLD}${detected}${RST}"
+    echo ""
+    prompt "Apply this hardware module? [Y/n]:"
+    read -r hw_ans
+    if [[ "${hw_ans,,}" != "n" ]]; then
+      HW_MODULE="$detected"
+      ok "Module confirmed."
+      return
+    fi
+  else
+    warn "Hull class not recognised: ${DIM}${product:-unknown}${RST}"
+  fi
+
+  echo ""
+  say "You can specify a nixos-hardware module manually, or skip.\n  Browse all modules: github.com/nixos/nixos-hardware"
+  echo ""
+  prompt "Hardware module name (or leave blank to skip):"
+  read -r hw_input
+  if [[ -n "$hw_input" ]]; then
+    HW_MODULE="$hw_input"
+    ok "Module set: ${BLD}${HW_MODULE}${RST}"
+  else
+    dim "No hardware module. Continuing with generic config."
+  fi
+}
+
+# ── Step 4: NVIDIA ────────────────────────────────────────────────────────────
+
+detect_nvidia_question() {
+  [[ "$PROFILE" == "nixeko-beacon" ]] && return
+
+  hdr "IV. ENGINE ROOM"
+  say "Does this vessel carry twin engines? Intel iGPU + NVIDIA GPU (hybrid / Optimus)?"
+  echo ""
+
+  # Try to auto-detect
+  if lspci 2>/dev/null | grep -qiE "3D.*NVIDIA|VGA.*NVIDIA"; then
+    ok "NVIDIA GPU detected."
+    echo ""
+    prompt "Enable NVIDIA PRIME offload support? [Y/n]:"
+    read -r nv_ans
+    [[ "${nv_ans,,}" != "n" ]] && HAS_NVIDIA=true
+  else
+    prompt "Do you have an NVIDIA GPU? [y/N]:"
+    read -r nv_ans
+    [[ "${nv_ans,,}" == "y" ]] && HAS_NVIDIA=true
+  fi
+
+  if $HAS_NVIDIA; then
+    ok "NVIDIA support enabled. Bus IDs will be auto-detected and patched."
+  else
+    dim "No NVIDIA module. Intel/AMD only."
+  fi
+}
+
+# ── Step 5: Choose the expanse ────────────────────────────────────────────────
 
 select_disk() {
-  hdr "II. THE EXPANSE"
+  hdr "V. THE EXPANSE"
   say "The substrate stretches before you. Choose where the ${SHIP_NAME} shall be carved."
   echo ""
   echo -e "  ${DIM}Available drives:${RST}"
@@ -159,7 +273,7 @@ select_disk() {
 # ── Step 3: Full conquest or shared expanse ───────────────────────────────────
 
 select_install_mode() {
-  hdr "III. TERRITORY"
+  hdr "VI. TERRITORY"
   say "Will the ${SHIP_NAME} claim the entire expanse, or sail alongside another?"
   echo ""
   echo -e "    ${BLD}1${RST}  Full conquest   — entire drive is yours. All prior data lost."
@@ -215,7 +329,7 @@ select_install_mode() {
 # ── Step 4: Hull integrity ─────────────────────────────────────────────────────
 
 choose_encryption() {
-  hdr "IV. HULL INTEGRITY"
+  hdr "VII. HULL INTEGRITY"
   say "The vault can be sealed. No force may breach it without the passphrase.\n  Recommended. The expanse is not always friendly."
   echo ""
   prompt "Seal the hull with encryption? [Y/n]:"
@@ -246,12 +360,15 @@ choose_encryption() {
 # ── Step 5: Final confirmation ────────────────────────────────────────────────
 
 confirm_plan() {
-  hdr "V. FINAL MANIFEST"
+  hdr "VIII. FINAL MANIFEST"
   say "Before the commission begins, review the charter."
   echo ""
   echo -e "    ${BLD}Ship name${RST}     ${CYN}${SHIP_NAME}${RST}"
+  echo -e "    ${BLD}Profile${RST}       ${CYN}${PROFILE}${RST}"
   echo -e "    ${BLD}Target${RST}        ${CYN}${TARGET_DISK}${RST}"
   echo -e "    ${BLD}Mode${RST}          ${CYN}${INSTALL_MODE}${RST}"
+  [[ -n "$HW_MODULE" ]] && echo -e "    ${BLD}HW module${RST}     ${CYN}${HW_MODULE}${RST}"
+  $HAS_NVIDIA && echo -e "    ${BLD}NVIDIA${RST}        ${CYN}PRIME offload${RST}"
   if [[ "$INSTALL_MODE" == "dual" ]]; then
     echo -e "    ${BLD}Root part${RST}     ${CYN}${ROOT_PART}${RST}"
     echo -e "    ${BLD}EFI part${RST}      ${CYN}${EFI_PART}${RST}"
@@ -276,7 +393,7 @@ confirm_plan() {
 partition_disk() {
   if [[ "$INSTALL_MODE" != "full" ]]; then return; fi
 
-  hdr "VI. SHAPING THE VOID"
+  hdr "IX. SHAPING THE VOID"
   say "The expanse yields to form. Carving decks and holds..."
   echo ""
 
@@ -306,7 +423,7 @@ partition_disk() {
 seal_hull() {
   if ! $LUKS_ENABLED; then return; fi
 
-  hdr "VII. SEALING THE HULL"
+  hdr "X. SEALING THE HULL"
   say "The vault takes shape. None shall enter without the passphrase."
   echo ""
 
@@ -328,7 +445,7 @@ seal_hull() {
 # ── Step 8: Lay the decks ─────────────────────────────────────────────────────
 
 format_and_mount() {
-  hdr "VIII. LAYING THE DECKS"
+  hdr "XI. LAYING THE DECKS"
   say "The chambers take shape. Floors, walls, the spaces between."
   echo ""
 
@@ -353,7 +470,7 @@ format_and_mount() {
 # ── Step 9: Copy the manifest ─────────────────────────────────────────────────
 
 copy_repo() {
-  hdr "IX. LOADING THE MANIFEST"
+  hdr "XII. LOADING THE MANIFEST"
   say "The ship's charter — every setting, every configuration — is carried aboard."
   echo ""
 
@@ -365,7 +482,7 @@ copy_repo() {
 # ── Step 10: VPN provisioning ─────────────────────────────────────────────────
 
 setup_vpn() {
-  hdr "X. THE CLOAKING ARRAY"
+  hdr "XIII. THE CLOAKING ARRAY"
   say "A ship that moves unseen moves safely. The array accepts any OpenVPN\n  configuration — ProtonVPN, Mullvad, your own. Or skip and add later."
   echo ""
   prompt "Set up VPN now? [y/N]:"
@@ -420,7 +537,7 @@ setup_vpn() {
 # ── Step 11: Chart the vessel ─────────────────────────────────────────────────
 
 generate_config() {
-  hdr "XI. CHARTING THE VESSEL"
+  hdr "XIV. CHARTING THE VESSEL"
   say "Scanning ship systems... cataloguing drives, engines, memory cells..."
   echo ""
 
@@ -437,12 +554,25 @@ generate_config() {
   cp /mnt/etc/nixos/hardware-configuration.nix \
     /mnt/home/eko/Projects/nixeko/hosts/nixeko/hardware-configuration.nix
   ok "Hardware configuration captured."
+
+  # Patch flake.nix — inject hardware module if detected
+  local flake="/mnt/home/eko/Projects/nixeko/flake.nix"
+  if [[ -n "$HW_MODULE" ]]; then
+    sed -i "s|# NIXOS_HARDWARE: none|nixos-hardware.nixosModules.${HW_MODULE}|g" "$flake"
+    ok "Hardware module patched: ${BLD}${HW_MODULE}${RST}"
+  fi
+
+  # Patch flake.nix — inject NVIDIA module if selected
+  if $HAS_NVIDIA; then
+    sed -i "s|# NVIDIA_MODULE: none|./modules/system/nvidia.nix|g" "$flake"
+    ok "NVIDIA module patched."
+  fi
 }
 
 # ── Step 12: Detect engines ───────────────────────────────────────────────────
 
 detect_nvidia() {
-  hdr "XII. ENGINE ROOM"
+  hdr "XV. ENGINE ROOM"
   say "Probing the drive systems... listening for the twin engines..."
   echo ""
 
@@ -473,7 +603,7 @@ detect_nvidia() {
 patch_luks_config() {
   if ! $LUKS_ENABLED; then return; fi
 
-  hdr "XIII. SEALING THE BOOT VAULT"
+  hdr "XVI. SEALING THE BOOT VAULT"
   say "Binding the hull seal to the boot sequence. The passphrase will be\n  requested at ignition."
   echo ""
 
@@ -492,13 +622,13 @@ patch_luks_config() {
 # ── Step 14: Launch ───────────────────────────────────────────────────────────
 
 run_install() {
-  hdr "XIV. IGNITION"
+  hdr "XVII. IGNITION"
   say "All systems nominal. The ${SHIP_NAME} draws her first breath.\n  This may take a while — the void does not yield quickly."
   echo ""
 
   nixos-install \
     --no-root-passwd \
-    --flake "/mnt/home/eko/Projects/nixeko#nixeko"
+    --flake "/mnt/home/eko/Projects/nixeko#${PROFILE}"
 
   echo ""
   ok "Installation complete."
@@ -534,6 +664,9 @@ main() {
   check_root
   check_environment
   name_ship
+  select_profile
+  detect_hardware_module
+  detect_nvidia_question
   select_disk
   select_install_mode
   choose_encryption

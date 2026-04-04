@@ -1,9 +1,12 @@
 { pkgs, ... }:
 
-{
-  # ── GTK theme ─────────────────────────────────────────────────────────────────
-  # Stylix handles colors. This handles icons and cursor.
+# GTK — icons and cursor. Stylix handles all colors.
+# Cursor alternatives if bibata-cursors causes issues:
+#   pkgs.vanilla-dmz       (minimal, always works)
+#   pkgs.adwaita-icon-theme (GNOME default)
+#   pkgs.phinger-cursors   (retro pixel style — very on-brand)
 
+{
   gtk = {
     enable = true;
     iconTheme = {
@@ -17,11 +20,10 @@
     };
   };
 
-  # Also set for Wayland / Hyprland
   home.pointerCursor = {
-    name    = "Bibata-Modern-Classic";
-    package = pkgs.bibata-cursors;
-    size    = 24;
+    name       = "Bibata-Modern-Classic";
+    package    = pkgs.bibata-cursors;
+    size       = 24;
     gtk.enable = true;
   };
 }
