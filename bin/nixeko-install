@@ -36,6 +36,28 @@ prompt() { echo -e "${WHT}${BLD}  ›  $*${RST}"; }
 rule()   { echo -e "${DIM}  ────────────────────────────────────────${RST}"; }
 dim()    { echo -e "  ${DIM}$*${RST}"; }
 
+# Read a password — shows ✦ per character, supports backspace
+read_secret() {
+  local __result=""
+  local char
+  echo -n "  "
+  while IFS= read -r -s -n1 char; do
+    if [[ -z "$char" ]]; then          # Enter
+      break
+    elif [[ "$char" == $'\x7f' ]]; then # Backspace
+      if [[ -n "$__result" ]]; then
+        __result="${__result%?}"
+        echo -ne "\b \b"
+      fi
+    else
+      __result+="$char"
+      echo -ne "${CYN}✦${RST}"
+    fi
+  done
+  echo ""
+  printf '%s' "$__result"
+}
+
 # ── Ship art ──────────────────────────────────────────────────────────────────
 
 show_title() {
@@ -351,9 +373,9 @@ choose_encryption() {
     echo ""
     while true; do
       prompt "Passphrase:"
-      read -rs LUKS_PASS; echo ""
+      LUKS_PASS=$(read_secret)
       prompt "Confirm passphrase:"
-      read -rs LUKS_CONFIRM; echo ""
+      LUKS_CONFIRM=$(read_secret)
       if [[ "$LUKS_PASS" == "$LUKS_CONFIRM" ]]; then
         [[ ${#LUKS_PASS} -ge 8 ]] || { warn "Passphrase too short (min 8 chars)."; continue; }
         ok "Passphrase set. The hull will be sealed."
@@ -436,6 +458,11 @@ seal_hull() {
   hdr "X. SEALING THE HULL"
   say "The vault takes shape. None shall enter without the passphrase."
   echo ""
+
+  # Ensure partition is free — graphical ISO auto-mounts, re-runs leave stale mappings
+  umount "$ROOT_PART" 2>/dev/null || true
+  cryptsetup close "$MAPPER" 2>/dev/null || true
+  swapoff "$ROOT_PART" 2>/dev/null || true
 
   echo -n "$LUKS_PASS" | cryptsetup luksFormat \
     --type luks2 \
@@ -535,7 +562,7 @@ setup_vpn() {
 
   if [[ -n "$vpn_user" ]]; then
     prompt "Enter VPN password:"
-    read -rs vpn_pass; echo ""
+    vpn_pass=$(read_secret)
     printf '%s\n%s\n' "$vpn_user" "$vpn_pass" > "$dest_dir/credentials"
     chmod 600 "$dest_dir/credentials"
     ok "Credentials stored. The array is armed."
