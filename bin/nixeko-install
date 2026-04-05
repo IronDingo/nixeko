@@ -935,7 +935,7 @@ run_install() {
 
   nixos-install \
     --no-root-passwd \
-    --flake "/mnt/home/$CAPTAIN/Projects/nixeko#${PROFILE}"
+    --flake "path:/mnt/home/$CAPTAIN/Projects/nixeko#${PROFILE}"
 
   echo ""
   ok "Installation complete."
