@@ -16,7 +16,7 @@
 
   networking.hostName = "nixeko-vm";
 
-  time.timeZone = "Europe/Berlin";
+  time.timeZone = "Europe/Berlin"; # VM only — doesn't matter for testing
   i18n.defaultLocale = "en_US.UTF-8";
 
   users.users.eko = {

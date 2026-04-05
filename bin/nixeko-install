@@ -558,6 +558,8 @@ patch_username() {
     "$dest/hosts/nixeko-dinghy/default.nix"
     "$dest/hosts/nixeko-beacon/default.nix"
     "$dest/hosts/nixeko-vm/default.nix"
+    "$dest/modules/system/base.nix"
+    "$dest/modules/system/vpn.nix"
   )
 
   for f in "${files[@]}"; do
@@ -668,7 +670,7 @@ generate_config() {
 detect_nvidia() {
   $HAS_NVIDIA || return
 
-  hdr "XV. ENGINE ROOM"
+  hdr "XV. TWIN ENGINES"
   say "Probing the drive systems... listening for the twin engines..."
   echo ""
 

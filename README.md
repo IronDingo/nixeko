@@ -106,7 +106,8 @@ Switch with `nixeko theme <name>`:
 | Super+Shift+G | Signal |
 | Super+Shift+M | Spotify |
 | Super+Shift+T | btop |
-| Super+Shift+D | Lazydocker |
+| Super+Shift+D | Docker compose menu |
+| Super+Shift+Ctrl+L | Lazydocker |
 | Super+Shift+A | DeepSeek |
 | Super+Shift+Alt+A | Claude AI |
 | Super+Shift+Ctrl+A | Local LLM (Ollama) |
