@@ -5,7 +5,7 @@
 #  Usage: bash bin/nixeko-install
 # ─────────────────────────────────────────────────────────────────────────────
 
-set -euo pipefail
+set -Eeuo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SHIP_NAME=""
@@ -22,6 +22,8 @@ INSTALL_MODE=""      # full | dual
 HW_MODULE=""         # nixos-hardware module name, or empty
 HAS_NVIDIA=false
 IS_VM=false
+CURRENT_STEP="startup"
+LOGFILE="/tmp/nixeko-install.log"
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'; BLU='\033[0;34m'
@@ -36,6 +38,82 @@ hdr()    { echo -e "\n${BLD}${CYN}  ══  $*  ══${RST}\n"; }
 prompt() { echo -e "${WHT}${BLD}  ›  $*${RST}"; }
 rule()   { echo -e "${DIM}  ────────────────────────────────────────${RST}"; }
 dim()    { echo -e "  ${DIM}$*${RST}"; }
+
+# ── Error handling ────────────────────────────────────────────────────────────
+
+cleanup_mounts() {
+  umount -R /mnt 2>/dev/null || true
+  cryptsetup close "$MAPPER" 2>/dev/null || true
+}
+
+on_error() {
+  local line="$1"
+  echo ""
+  echo -e "${RED}${BLD}  ✗  The commission was interrupted.${RST}"
+  echo -e "${DIM}  Step ${CURRENT_STEP}  ·  line ${line}${RST}"
+  echo ""
+  cleanup_mounts
+  echo ""
+  case "$CURRENT_STEP" in
+    "IX")
+      warn "Disk partitioning failed."
+      dim "Is the disk in use?   lsblk"
+      dim "Confirm it exists:    ls ${TARGET_DISK}"
+      ;;
+    "X")
+      warn "LUKS encryption failed — partition may be locked or already open."
+      dim "Check state:  lsblk -o NAME,TYPE,FSTYPE"
+      dim "Close stale:  cryptsetup close ${MAPPER}"
+      ;;
+    "XI")
+      warn "Filesystem creation failed — something is still mounted."
+      dim "Fix:  umount -R /mnt && udevadm settle"
+      ;;
+    "XII")
+      warn "Could not load the manifest. Disk space?"
+      dim "Check:  df -h /mnt"
+      ;;
+    "XIV")
+      warn "Hardware scan failed. Is /mnt properly mounted?"
+      dim "Check:  mount | grep /mnt"
+      ;;
+    "XVII")
+      warn "nixos-install failed. The error above has the full story."
+      echo ""
+      dim "Common causes:"
+      dim "  · Config error  — cd into the repo and run:  nix flake check"
+      dim "  · No network    — check connectivity and retry"
+      dim "  · Disk full     — df -h /mnt"
+      echo ""
+      dim "To retry without re-running the whole wizard:"
+      dim "  mount /dev/mapper/${MAPPER} /mnt   (or /dev/${TARGET_DISK##*/}2 if no LUKS)"
+      dim "  mount ${EFI_PART:-/dev/...} /mnt/boot"
+      dim "  nixos-install --no-root-passwd \\"
+      dim "    --flake \"/mnt/home/${CAPTAIN}/Projects/nixeko#${PROFILE}\""
+      ;;
+    "XVIII")
+      warn "Password setup failed. Set it manually:"
+      dim "  nixos-enter --root /mnt"
+      dim "  passwd ${CAPTAIN}"
+      ;;
+    *)
+      warn "Something unexpected failed. Check the output above for details."
+      ;;
+  esac
+  echo ""
+  if [[ -f "$LOGFILE" ]]; then
+    echo -e "${DIM}  ── last 20 lines of log ─────────────────────────────────────${RST}"
+    tail -20 "$LOGFILE" | sed 's/\x1b\[[0-9;]*m//g' | sed 's/^/  /'
+    echo -e "${DIM}  ─────────────────────────────────────────────────────────────${RST}"
+    echo ""
+    dim "Full log: ${LOGFILE}"
+  fi
+  echo ""
+  say "Mounts cleared. Run the wizard again when ready."
+  echo ""
+}
+
+trap 'on_error $LINENO' ERR
 
 # Read a password into a named variable — shows ✦ per character, supports backspace
 # Usage: read_secret VARNAME
@@ -421,6 +499,7 @@ confirm_plan() {
   say "Before the commission begins, review the charter."
   echo ""
   echo -e "    ${BLD}Ship name${RST}     ${CYN}${SHIP_NAME}${RST}"
+  echo -e "    ${BLD}Captain${RST}       ${CYN}${CAPTAIN}${RST}"
   echo -e "    ${BLD}Profile${RST}       ${CYN}${PROFILE}${RST}"
   echo -e "    ${BLD}Target${RST}        ${CYN}${TARGET_DISK}${RST}"
   echo -e "    ${BLD}Mode${RST}          ${CYN}${INSTALL_MODE}${RST}"
@@ -449,7 +528,7 @@ confirm_plan() {
 
 partition_disk() {
   if [[ "$INSTALL_MODE" != "full" ]]; then return; fi
-
+  CURRENT_STEP="IX"
   hdr "IX. SHAPING THE VOID"
   say "The expanse yields to form. Carving decks and holds..."
   echo ""
@@ -480,7 +559,7 @@ partition_disk() {
 
 seal_hull() {
   if ! $LUKS_ENABLED; then return; fi
-
+  CURRENT_STEP="X"
   hdr "X. SEALING THE HULL"
   say "The vault takes shape. None shall enter without the passphrase."
   echo ""
@@ -511,6 +590,7 @@ seal_hull() {
 # ── Step 8: Lay the decks ─────────────────────────────────────────────────────
 
 format_and_mount() {
+  CURRENT_STEP="XI"
   hdr "XI. LAYING THE DECKS"
   say "The chambers take shape. Floors, walls, the spaces between."
   echo ""
@@ -542,6 +622,7 @@ format_and_mount() {
 # ── Step 9: Copy the manifest ─────────────────────────────────────────────────
 
 copy_repo() {
+  CURRENT_STEP="XII"
   hdr "XII. LOADING THE MANIFEST"
   say "The ship's charter — every setting, every configuration — is carried aboard."
   echo ""
@@ -553,11 +634,9 @@ copy_repo() {
 
 patch_username() {
   local dest="/mnt/home/$CAPTAIN/Projects/nixeko"
-  [[ "$CAPTAIN" == "eko" ]] && return
 
-  info "Patching username: eko → ${CAPTAIN}..."
+  say "Configuring for captain: ${CAPTAIN}..."
 
-  # Files that reference "eko" as a username
   local files=(
     "$dest/flake.nix"
     "$dest/home/eko.nix"
@@ -576,13 +655,12 @@ patch_username() {
     [[ -f "$f" ]] && sed -i "s/\beko\b/$CAPTAIN/g" "$f"
   done
 
-  # Rename home/eko.nix → home/<captain>.nix and update flake reference
-  if [[ -f "$dest/home/eko.nix" ]]; then
+  if [[ "$CAPTAIN" != "eko" && -f "$dest/home/eko.nix" ]]; then
     mv "$dest/home/eko.nix" "$dest/home/$CAPTAIN.nix"
     sed -i "s|./home/eko.nix|./home/$CAPTAIN.nix|g" "$dest/flake.nix"
   fi
 
-  ok "Configuration patched for captain: ${CAPTAIN}"
+  ok "Configuration ready for captain: ${CAPTAIN}"
 }
 
 # ── Step 10: VPN provisioning ─────────────────────────────────────────────────
@@ -643,6 +721,7 @@ setup_vpn() {
 # ── Step 11: Chart the vessel ─────────────────────────────────────────────────
 
 generate_config() {
+  CURRENT_STEP="XIV"
   hdr "XIV. CHARTING THE VESSEL"
   say "Scanning ship systems... cataloguing drives, engines, memory cells..."
   echo ""
@@ -651,14 +730,14 @@ generate_config() {
   ok "Hardware manifest generated."
 
   # Patch hostname
-  local host_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/nixeko/default.nix"
+  local host_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/default.nix"
   sed -i "s/networking.hostName = \"[^\"]*\"/networking.hostName = \"${SHIP_NAME}\"/" \
     "$host_file"
   ok "Ship registered as: ${BLD}${SHIP_NAME}${RST}"
 
   # Copy generated hardware-configuration.nix into the nixeko repo
   cp /mnt/etc/nixos/hardware-configuration.nix \
-    /mnt/home/$CAPTAIN/Projects/nixeko/hosts/nixeko/hardware-configuration.nix
+    "/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/hardware-configuration.nix"
   ok "Hardware configuration captured."
 
   # Patch flake.nix — inject hardware module if detected
@@ -716,7 +795,7 @@ patch_luks_config() {
   echo ""
 
   # nixos-generate-config may have detected LUKS — check and supplement if not
-  local hw_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/nixeko/hardware-configuration.nix"
+  local hw_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/hardware-configuration.nix"
   if ! grep -q "luks" "$hw_file"; then
     # Inject LUKS config before the final closing brace
     sed -i "s|^}$|  boot.initrd.luks.devices.\"${MAPPER}\" = {\n    device = \"/dev/disk/by-uuid/${LUKS_UUID}\";\n    allowDiscards = true;\n  };\n\n}|" \
@@ -730,8 +809,13 @@ patch_luks_config() {
 # ── Step 14: Launch ───────────────────────────────────────────────────────────
 
 run_install() {
+  CURRENT_STEP="XVII"
   hdr "XVII. IGNITION"
-  say "All systems nominal. The ${SHIP_NAME} draws her first breath.\n  This may take a while — the void does not yield quickly."
+  say "All systems nominal. The ${SHIP_NAME} draws her first breath."
+  echo ""
+  dim "This will take a while. Nix is downloading and building the full system."
+  dim "You'll see build output scroll past — that's normal. Don't interrupt it."
+  dim "If it pauses for a minute, it's probably fetching a large package."
   echo ""
 
   nixos-install \
@@ -745,6 +829,7 @@ run_install() {
 # ── Set user password ─────────────────────────────────────────────────────────
 
 set_password() {
+  CURRENT_STEP="XVIII"
   hdr "XVIII. THE CAPTAIN'S SEAL"
   say "Set your login password for captain ${BLD}${CAPTAIN}${RST}${ITL}${DIM}."
   echo ""
@@ -792,6 +877,12 @@ set_password() {
 # ── Farewell ──────────────────────────────────────────────────────────────────
 
 farewell() {
+  # Save install log into the new system
+  if [[ -f "$LOGFILE" && -d /mnt ]]; then
+    mkdir -p "/mnt/home/$CAPTAIN"
+    cp "$LOGFILE" "/mnt/home/$CAPTAIN/nixeko-install.log" 2>/dev/null || true
+  fi
+
   echo ""
   rule
   farewell_art "$SHIP_NAME"
@@ -815,6 +906,7 @@ farewell() {
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 main() {
+  exec > >(tee -a "$LOGFILE") 2>&1
   show_title
   check_root
   check_environment
