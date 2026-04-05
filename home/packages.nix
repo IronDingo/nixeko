@@ -34,7 +34,7 @@
     gopls
     rust-analyzer
     lua-language-server
-    nodePackages.typescript-language-server
+    typescript-language-server
 
     # Containers
     lazydocker
