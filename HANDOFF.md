@@ -131,8 +131,7 @@ Wizard steps (I–XVII):
 14. Detect NVIDIA bus IDs (real hardware only)
 15. Patch LUKS into hardware-configuration.nix (if encrypted)
 16. nixos-install (the long one)
-17. Set captain + root passwords
-18. Farewell summary
+17. Set passwords + farewell
 
 ---
 
