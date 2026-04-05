@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, pkgs, username, ... }:
 
 # nixeko-dinghy — BSPWM profile
 # A nimble craft. Same waters, lighter hull.
@@ -14,8 +14,8 @@
     ./mime.nix
   ];
 
-  home.username      = "eko";
-  home.homeDirectory = "/home/eko";
+  home.username      = username;
+  home.homeDirectory = "/home/${username}";
   home.stateVersion  = "24.11";
   nixpkgs.config.allowUnfree = true;
   programs.home-manager.enable = true;

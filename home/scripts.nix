@@ -1,4 +1,4 @@
-{ ... }:
+{ username, ... }:
 
 {
   home.file.".local/bin/vpn-menu" = {
@@ -23,14 +23,14 @@
 
   # Nautilus sidebar bookmarks — quick access to key locations
   home.file.".config/gtk-3.0/bookmarks".text = ''
-    file:///home/eko/Projects/nixeko            ⚙ nixeko config
-    file:///home/eko/Projects/nixeko/home        ⚙ home modules
-    file:///home/eko/Projects/nixeko/modules     ⚙ system modules
-    file:///home/eko/Projects/nixeko/docker      ⚙ docker services
-    file:///home/eko/Projects/nixeko/wallpapers  ⚙ wallpapers
-    file:///home/eko/Projects/nixeko/vpn         ⚙ vpn configs
-    file:///home/eko/Documents                   Documents
-    file:///home/eko/Downloads                   Downloads
-    file:///home/eko/Syncthing-Master            Syncthing
+    file:///home/${username}/Projects/nixeko            ⚙ nixeko config
+    file:///home/${username}/Projects/nixeko/home        ⚙ home modules
+    file:///home/${username}/Projects/nixeko/modules     ⚙ system modules
+    file:///home/${username}/Projects/nixeko/docker      ⚙ docker services
+    file:///home/${username}/Projects/nixeko/wallpapers  ⚙ wallpapers
+    file:///home/${username}/Projects/nixeko/vpn         ⚙ vpn configs
+    file:///home/${username}/Documents                   Documents
+    file:///home/${username}/Downloads                   Downloads
+    file:///home/${username}/Syncthing-Master            Syncthing
   '';
 }

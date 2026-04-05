@@ -1,37 +1,40 @@
-{ config, pkgs, ... }:
+{ config, lib, pkgs, nixos-hardware, ... }:
 
 # nixeko-beacon — headless host config
 # Hull and engines only. No display server.
 # SSH in. Get to work.
 
+let u = config.nixeko.username; in
+
 {
-  imports = [ ./hardware-configuration.nix ];
+  imports = [
+    ./hardware-configuration.nix
+  ] ++ lib.optional (config.nixeko.hardwareModule != "")
+        nixos-hardware.nixosModules.${config.nixeko.hardwareModule};
 
   boot.loader = {
-    systemd-boot.enable      = true;
+    systemd-boot.enable     = true;
     efi.canTouchEfiVariables = true;
   };
 
   boot.kernelPackages = pkgs.linuxPackages_latest;
 
-  networking.hostName = "nixeko-beacon";
+  networking.hostName = config.nixeko.hostname;
 
-  time.timeZone       = "Europe/London"; # CHANGE ME
-  i18n.defaultLocale  = "en_US.UTF-8";
+  time.timeZone      = "Europe/London"; # CHANGE ME
+  i18n.defaultLocale = "en_US.UTF-8";
 
-  # User
-  users.users.eko = {
-    isNormalUser  = true;
-    description   = "eko";
-    extraGroups   = [ "wheel" "docker" "networkmanager" ];
-    shell         = pkgs.bash;
+  users.users.${u} = {
+    isNormalUser = true;
+    description  = u;
+    extraGroups  = [ "wheel" "docker" "networkmanager" ];
+    shell        = pkgs.bash;
     # Add your SSH public key here for passwordless login:
     # openssh.authorizedKeys.keys = [ "ssh-ed25519 AAAA..." ];
   };
 
-  # SSH
   services.openssh = {
-    enable                = true;
+    enable                          = true;
     settings.PasswordAuthentication = false;
     settings.PermitRootLogin        = "no";
   };

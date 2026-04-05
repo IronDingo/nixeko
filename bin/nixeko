@@ -60,6 +60,10 @@ EOF
 
 cmd_update() {
   hdr "Updating nixeko"
+  warn "This moves the nixpkgs pin. nixpkgs-unstable APIs change — verify the build before rebooting."
+  echo -n "  Continue? [y/N] "
+  read -r _upd_ans
+  [[ "${_upd_ans,,}" == "y" ]] || { info "Aborted."; return 0; }
   info "Pulling flake inputs..."
   nix flake update --flake "$NIXEKO_DIR"
   info "Rebuilding..."

@@ -59,10 +59,10 @@
 
   # Syncthing
   services.syncthing = {
-    enable = true;
-    user = "eko";
-    dataDir = "/home/eko/Syncthing-Master";
-    configDir = "/home/eko/.config/syncthing";
+    enable    = true;
+    user      = config.nixeko.username;
+    dataDir   = "/home/${config.nixeko.username}/Syncthing-Master";
+    configDir = "/home/${config.nixeko.username}/.config/syncthing";
     openDefaultPorts = true;
   };
 

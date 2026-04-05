@@ -21,6 +21,8 @@ MAPPER="nixeko-vault"
 INSTALL_MODE=""      # full | dual
 HW_MODULE=""         # nixos-hardware module name, or empty
 HAS_NVIDIA=false
+INTEL_BUS_ID="PCI:0:2:0"
+NVIDIA_BUS_ID="PCI:1:0:0"
 IS_VM=false
 CURRENT_STEP="startup"
 LOGFILE="/tmp/nixeko-install.log"
@@ -752,35 +754,33 @@ copy_repo() {
   chown -R 1000:100 "/mnt/home/$CAPTAIN" 2>/dev/null || true
 }
 
-patch_username() {
-  local dest="/mnt/home/$CAPTAIN/Projects/nixeko"
+# ── Step 11: Write system parameters ─────────────────────────────────────────
+# Replaces all sed-based text patching. A single Nix file sets username,
+# hostname, GPU config, and hardware module. The module system does the rest.
 
-  say "Configuring for captain: ${CAPTAIN}..."
+write_params() {
+  local params_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/params.nix"
 
-  local files=(
-    "$dest/flake.nix"
-    "$dest/home/eko.nix"
-    "$dest/home/dinghy.nix"
-    "$dest/home/beacon.nix"
-    "$dest/home/scripts.nix"
-    "$dest/hosts/nixeko/default.nix"
-    "$dest/hosts/nixeko-dinghy/default.nix"
-    "$dest/hosts/nixeko-beacon/default.nix"
-    "$dest/hosts/nixeko-vm/default.nix"
-    "$dest/modules/system/base.nix"
-    "$dest/modules/system/vpn.nix"
-  )
+  say "Writing system parameters for captain: ${BLD}${CAPTAIN}${RST}..."
 
-  for f in "${files[@]}"; do
-    [[ -f "$f" ]] && sed -i "s/\beko\b/$CAPTAIN/g" "$f"
-  done
+  local nvidia_val="false"
+  local intel_val="\"${INTEL_BUS_ID}\""
+  local nvidia_bus_val="\"${NVIDIA_BUS_ID}\""
+  $HAS_NVIDIA && nvidia_val="true"
 
-  if [[ "$CAPTAIN" != "eko" && -f "$dest/home/eko.nix" ]]; then
-    mv "$dest/home/eko.nix" "$dest/home/$CAPTAIN.nix"
-    sed -i "s|./home/eko.nix|./home/$CAPTAIN.nix|g" "$dest/flake.nix"
-  fi
+  cat > "$params_file" <<EOF
+# ${PROFILE} — system parameters written by nixeko-install
+{
+  nixeko.username      = "${CAPTAIN}";
+  nixeko.hostname      = "${SHIP_NAME}";
+  nixeko.hasNvidia     = ${nvidia_val};
+  nixeko.intelBusId    = ${intel_val};
+  nixeko.nvidiaBusId   = ${nvidia_bus_val};
+  nixeko.hardwareModule = "${HW_MODULE}";
+}
+EOF
 
-  ok "Configuration ready for captain: ${CAPTAIN}"
+  ok "Parameters written → hosts/${PROFILE}/params.nix"
 }
 
 # ── Step 11: Chart the vessel ─────────────────────────────────────────────────
@@ -796,34 +796,16 @@ generate_config() {
   stop_spinner
   ok "Hardware manifest generated."
 
-  # Patch hostname
-  CURRENT_STEP="XIII:hostname-patch"
-  local host_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/default.nix"
-  if [[ ! -f "$host_file" ]]; then
-    err "Host config not found: ${host_file}\n  Did copy_repo succeed? Is PROFILE='${PROFILE}' correct?"
-  fi
-  sed -i "s/networking.hostName = \"[^\"]*\"/networking.hostName = \"${SHIP_NAME}\"/" \
-    "$host_file"
-  ok "Ship registered as: ${BLD}${SHIP_NAME}${RST}"
-
-  # Copy generated hardware-configuration.nix into the nixeko repo
+  # Copy generated hardware-configuration.nix into the nixeko repo.
+  # No sed patching — hostname, NVIDIA, and hardware modules flow through
+  # hosts/${PROFILE}/params.nix (written later by write_params).
   CURRENT_STEP="XIII:hardware-config-copy"
-  cp /mnt/etc/nixos/hardware-configuration.nix \
-    "/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/hardware-configuration.nix"
+  local host_dir="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}"
+  if [[ ! -d "$host_dir" ]]; then
+    err "Host directory not found: ${host_dir}\n  Did copy_repo succeed? Is PROFILE='${PROFILE}' correct?"
+  fi
+  cp /mnt/etc/nixos/hardware-configuration.nix "${host_dir}/hardware-configuration.nix"
   ok "Hardware configuration captured."
-
-  # Patch flake.nix — inject hardware module if detected
-  CURRENT_STEP="XIII:flake-patch"
-  local flake="/mnt/home/$CAPTAIN/Projects/nixeko/flake.nix"
-  if [[ -n "$HW_MODULE" ]]; then
-    sed -i "s|# NIXOS_HARDWARE: none|nixos-hardware.nixosModules.${HW_MODULE}|g" "$flake"
-    ok "Hardware module patched: ${BLD}${HW_MODULE}${RST}"
-  fi
-
-  if $HAS_NVIDIA; then
-    sed -i "s|# NVIDIA_MODULE: none|./modules/system/nvidia.nix|g" "$flake"
-    ok "NVIDIA module patched."
-  fi
 }
 
 # ── Step 12: Detect engines ───────────────────────────────────────────────────
@@ -841,19 +823,15 @@ detect_nvidia() {
 
   if [[ -n "$intel_id" && -n "$nvidia_id" ]]; then
     # Convert PCI address format: 00:02.0 → PCI:0:2:0
-    local intel_nix nvidia_nix
-    intel_nix=$(echo "$intel_id" | awk -F'[:\.]' '{printf "PCI:%d:%d:%d", strtonum("0x"$1), strtonum("0x"$2), strtonum("0x"$3)}')
-    nvidia_nix=$(echo "$nvidia_id" | awk -F'[:\.]' '{printf "PCI:%d:%d:%d", strtonum("0x"$1), strtonum("0x"$2), strtonum("0x"$3)}')
+    INTEL_BUS_ID=$(echo "$intel_id" | awk -F'[:\.]' '{printf "PCI:%d:%d:%d", strtonum("0x"$1), strtonum("0x"$2), strtonum("0x"$3)}')
+    NVIDIA_BUS_ID=$(echo "$nvidia_id" | awk -F'[:\.]' '{printf "PCI:%d:%d:%d", strtonum("0x"$1), strtonum("0x"$2), strtonum("0x"$3)}')
 
-    local nvidia_file="/mnt/home/$CAPTAIN/Projects/nixeko/modules/system/nvidia.nix"
-    sed -i "s|intelBusId = \"[^\"]*\"|intelBusId = \"${intel_nix}\"|" "$nvidia_file"
-    sed -i "s|nvidiaBusId = \"[^\"]*\"|nvidiaBusId = \"${nvidia_nix}\"|" "$nvidia_file"
-
-    ok "Primary engine (Intel):  ${BLD}${intel_nix}${RST}"
-    ok "Shadow engine (NVIDIA):  ${BLD}${nvidia_nix}${RST}"
+    ok "Primary engine (Intel):  ${BLD}${INTEL_BUS_ID}${RST}"
+    ok "Shadow engine (NVIDIA):  ${BLD}${NVIDIA_BUS_ID}${RST}"
+    dim "Bus IDs will be written to hosts/${PROFILE}/params.nix."
   else
-    warn "Twin engines not detected — nvidia.nix bus IDs unchanged."
-    warn "Update manually if needed: modules/system/nvidia.nix"
+    warn "Twin engines not detected — using default bus IDs."
+    warn "Update nixeko.intelBusId / nvidiaBusId in hosts/${PROFILE}/params.nix if needed."
   fi
 }
 
@@ -1048,9 +1026,9 @@ main() {
   seal_hull
   format_and_mount
   copy_repo
-  patch_username
   generate_config
   detect_nvidia
+  write_params
   patch_luks_config
   run_install
   set_password

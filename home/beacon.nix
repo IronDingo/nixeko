@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, pkgs, username, ... }:
 
 # nixeko-beacon — headless profile
 # Hull and engines only. No bridge, no crew quarters.
@@ -10,8 +10,8 @@
     ./neovim.nix
   ];
 
-  home.username      = "eko";
-  home.homeDirectory = "/home/eko";
+  home.username      = username;
+  home.homeDirectory = "/home/${username}";
   home.stateVersion  = "24.11";
   programs.home-manager.enable = true;
 }

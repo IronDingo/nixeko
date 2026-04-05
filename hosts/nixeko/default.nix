@@ -1,38 +1,42 @@
-{ config, pkgs, ... }:
+{ config, lib, pkgs, nixos-hardware, ... }:
+
+let u = config.nixeko.username; in
 
 {
-  imports = [ ./hardware-configuration.nix ];
+  imports = [
+    ./hardware-configuration.nix
+  ] ++ lib.optional (config.nixeko.hardwareModule != "")
+        nixos-hardware.nixosModules.${config.nixeko.hardwareModule}
+    ++ lib.optional config.nixeko.hasNvidia
+        ../../modules/system/nvidia.nix;
 
   # Bootloader
   boot.loader = {
-    systemd-boot.enable = true;
+    systemd-boot.enable     = true;
     efi.canTouchEfiVariables = true;
   };
 
   # Kernel — latest for best hardware support
   boot.kernelPackages = pkgs.linuxPackages_latest;
 
-  # Hostname — set by the install wizard, or change manually
-  networking.hostName = "nixeko";
+  networking.hostName = config.nixeko.hostname;
 
   # Locale & timezone — change to your region
-  time.timeZone = "Europe/London"; # CHANGE ME — timedatectl list-timezones
+  time.timeZone      = "Europe/London"; # CHANGE ME — timedatectl list-timezones
   i18n.defaultLocale = "en_US.UTF-8";
 
-  # User
-  users.users.eko = {
+  users.users.${u} = {
     isNormalUser = true;
-    description = "eko";
-    extraGroups = [ "wheel" "docker" "video" "audio" "networkmanager" "libvirtd" ];
-    shell = pkgs.bash;
+    description  = u;
+    extraGroups  = [ "wheel" "docker" "video" "audio" "networkmanager" "libvirtd" ];
+    shell        = pkgs.bash;
   };
 
-  # Allow unfree packages (spotify, obsidian, nvidia, etc.)
   nixpkgs.config.allowUnfree = true;
 
   # Hyprland
   programs.hyprland = {
-    enable = true;
+    enable          = true;
     xwayland.enable = true;
   };
 
@@ -42,30 +46,28 @@
   # 1Password — needs special system integration
   programs._1password.enable = true;
   programs._1password-gui = {
-    enable = true;
-    polkitPolicyOwners = [ "eko" ];
+    enable             = true;
+    polkitPolicyOwners = [ u ];
   };
 
   # Steam
   programs.steam = {
-    enable = true;
-    remotePlay.openFirewall = true;
-    gamescopeSession.enable = true;
+    enable                  = true;
+    remotePlay.openFirewall  = true;
+    gamescopeSession.enable  = true;
   };
 
-  # Gamemode
   programs.gamemode.enable = true;
 
-  # Nix settings
   nix = {
     settings = {
       experimental-features = [ "nix-command" "flakes" ];
-      auto-optimise-store = true;
+      auto-optimise-store   = true;
     };
     gc = {
       automatic = true;
-      dates = "weekly";
-      options = "--delete-older-than 30d";
+      dates     = "weekly";
+      options   = "--delete-older-than 30d";
     };
   };
 

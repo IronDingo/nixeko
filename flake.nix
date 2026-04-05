@@ -2,25 +2,29 @@
   description = "nixeko — a self-contained NixOS configuration";
 
   inputs = {
-    nixpkgs.url      = "github:nixos/nixpkgs/nixos-unstable";
-    home-manager     = { url = "github:nix-community/home-manager"; inputs.nixpkgs.follows = "nixpkgs"; };
+    nixpkgs.url        = "github:nixos/nixpkgs/nixos-unstable";
+    home-manager       = { url = "github:nix-community/home-manager"; inputs.nixpkgs.follows = "nixpkgs"; };
     nixos-hardware.url = "github:nixos/nixos-hardware";
-    stylix.url       = "github:danth/stylix";
+    stylix.url         = "github:danth/stylix";
   };
 
   outputs = { self, nixpkgs, home-manager, nixos-hardware, stylix, ... }:
   let
-    # Wrap a home config file into the home-manager module format.
-    # CHANGE: replace "eko" with your username (also update each hosts/*/default.nix)
-    homeFor = file: {
+    # homeFor wires a home-manager config file into the NixOS module system.
+    # It is a *module function* so it can read config.nixeko.username at eval time —
+    # no more hardcoded "eko" and no renaming files at install time.
+    homeFor = file: { config, ... }: {
       home-manager.useGlobalPkgs    = true;
       home-manager.useUserPackages  = true;
-      home-manager.users.eko        = import file;
+      home-manager.extraSpecialArgs = { inherit (config.nixeko) username; };
+      home-manager.users.${config.nixeko.username} = import file;
     };
 
-    # Core system modules — shared by all profiles
+    # Core modules shared by every profile.
+    # nixeko-params.nix defines the nixeko.* options; each host's params.nix sets them.
     coreModules = [
       stylix.nixosModules.stylix
+      ./modules/nixeko-params.nix
       ./modules/system/base.nix
       ./modules/system/theme.nix
       ./modules/system/security.nix
@@ -30,53 +34,48 @@
       ./modules/system/vpn.nix
       home-manager.nixosModules.home-manager
     ];
+
+    # nixos-hardware is passed to all host modules via specialArgs so they can
+    # conditionally import hardware modules via lib.optional.
+    mkSystem = modules: nixpkgs.lib.nixosSystem {
+      system      = "x86_64-linux";
+      specialArgs = { inherit nixos-hardware; };
+      modules     = coreModules ++ modules;
+    };
   in
   {
     nixosConfigurations = {
 
-      # ── nixeko — full Hyprland ────────────────────────────────────────────���────
+      # ── nixeko — full Hyprland desktop ───────────────────────────────────────
       # Install: sudo bash bin/nixeko-install  (wizard handles everything)
-      nixeko = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = coreModules ++ [
-          (homeFor ./home/eko.nix)
-          ./hosts/nixeko
-          # NIXOS_HARDWARE: none   ← patched by install wizard
-          # NVIDIA_MODULE: none    ← patched by install wizard
-        ];
-      };
+      nixeko = mkSystem [
+        (homeFor ./home/eko.nix)
+        ./hosts/nixeko/params.nix
+        ./hosts/nixeko
+      ];
 
       # ── nixeko-dinghy — BSPWM, lean and fast ─────────────────────────────────
-      nixeko-dinghy = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = coreModules ++ [
-          (homeFor ./home/dinghy.nix)
-          ./hosts/nixeko-dinghy
-          # NIXOS_HARDWARE: none   ← patched by install wizard
-          # NVIDIA_MODULE: none    ← patched by install wizard
-        ];
-      };
+      nixeko-dinghy = mkSystem [
+        (homeFor ./home/dinghy.nix)
+        ./hosts/nixeko-dinghy/params.nix
+        ./hosts/nixeko-dinghy
+      ];
 
       # ── nixeko-beacon — headless, no display server ───────────────────────────
-      nixeko-beacon = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = coreModules ++ [
-          (homeFor ./home/beacon.nix)
-          ./hosts/nixeko-beacon
-          # NIXOS_HARDWARE: none   ← patched by install wizard
-        ];
-      };
+      nixeko-beacon = mkSystem [
+        (homeFor ./home/beacon.nix)
+        ./hosts/nixeko-beacon/params.nix
+        ./hosts/nixeko-beacon
+      ];
 
       # ── nixeko-vm — QEMU test target (no hardware specifics) ─────────────────
       # Build: nix build .#nixosConfigurations.nixeko-vm.config.system.build.toplevel
-      # Run:   nix build .#nixosConfigurations.nixeko-vm.config.system.build.vm && ./result/bin/run-nixeko-vm-vm
-      nixeko-vm = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = coreModules ++ [
-          (homeFor ./home/eko.nix)
-          ./hosts/nixeko-vm
-        ];
-      };
+      # Run:   nixos-rebuild build-vm --flake .#nixeko-vm && ./result/bin/run-nixeko-vm-vm
+      nixeko-vm = mkSystem [
+        (homeFor ./home/eko.nix)
+        ./hosts/nixeko-vm/params.nix
+        ./hosts/nixeko-vm
+      ];
 
     };
   };

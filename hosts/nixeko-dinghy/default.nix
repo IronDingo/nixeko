@@ -1,54 +1,58 @@
-{ config, pkgs, ... }:
+{ config, lib, pkgs, nixos-hardware, ... }:
 
 # nixeko-dinghy — BSPWM host config
 # A nimble craft. X11, lean, fast.
 
+let u = config.nixeko.username; in
+
 {
-  imports = [ ./hardware-configuration.nix ];
+  imports = [
+    ./hardware-configuration.nix
+  ] ++ lib.optional (config.nixeko.hardwareModule != "")
+        nixos-hardware.nixosModules.${config.nixeko.hardwareModule}
+    ++ lib.optional config.nixeko.hasNvidia
+        ../../modules/system/nvidia.nix;
 
   boot.loader = {
-    systemd-boot.enable      = true;
+    systemd-boot.enable     = true;
     efi.canTouchEfiVariables = true;
   };
 
   boot.kernelPackages = pkgs.linuxPackages_latest;
 
-  networking.hostName = "nixeko-dinghy";
+  networking.hostName = config.nixeko.hostname;
 
-  time.timeZone       = "Europe/London"; # CHANGE ME
-  i18n.defaultLocale  = "en_US.UTF-8";
+  time.timeZone      = "Europe/London"; # CHANGE ME
+  i18n.defaultLocale = "en_US.UTF-8";
 
   # X11 + BSPWM
   services.xserver = {
-    enable       = true;
+    enable = true;
     windowManager.bspwm.enable = true;
     displayManager.lightdm = {
-      enable    = true;
+      enable              = true;
       greeters.gtk.enable = true;
     };
   };
 
-  # User
-  users.users.eko = {
+  users.users.${u} = {
     isNormalUser = true;
-    description  = "eko";
+    description  = u;
     extraGroups  = [ "wheel" "docker" "video" "audio" "networkmanager" "libvirtd" ];
     shell        = pkgs.bash;
   };
 
   nixpkgs.config.allowUnfree = true;
 
-  # 1Password
   programs._1password.enable = true;
   programs._1password-gui = {
-    enable              = true;
-    polkitPolicyOwners  = [ "eko" ];
+    enable             = true;
+    polkitPolicyOwners = [ u ];
   };
 
-  # Steam
   programs.steam = {
-    enable               = true;
-    remotePlay.openFirewall = true;
+    enable                  = true;
+    remotePlay.openFirewall  = true;
   };
 
   programs.gamemode.enable = true;
