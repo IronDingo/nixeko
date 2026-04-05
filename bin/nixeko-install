@@ -92,6 +92,11 @@ on_error() {
       warn "Could not patch flake.nix."
       dim "Check:  ls /mnt/home/${CAPTAIN}/Projects/nixeko/flake.nix"
       ;;
+    "XVI")
+      warn "Failed to patch LUKS config into hardware-configuration.nix."
+      dim "Check:  cat /mnt/home/${CAPTAIN}/Projects/nixeko/hosts/${PROFILE}/hardware-configuration.nix"
+      dim "UUID:   ${LUKS_UUID}"
+      ;;
     "XVII")
       warn "nixos-install failed. The error above has the full story."
       echo ""
@@ -575,11 +580,8 @@ seal_hull() {
   if ! $LUKS_ENABLED; then return; fi
   CURRENT_STEP="X"
   hdr "X. SEALING THE HULL"
-  say "The vault takes shape. None shall enter without the passphrase."
   echo ""
 
-  # Ensure partition is free before formatting
-  # Graphical ISO auto-mounts partitions; re-runs leave stale LUKS mappings
   umount -R /mnt 2>/dev/null || true
   cryptsetup close "$MAPPER" 2>/dev/null || true
   swapoff "$ROOT_PART" 2>/dev/null || true
@@ -590,17 +592,21 @@ seal_hull() {
   _keyfile=$(mktemp)
   printf '%s' "$LUKS_PASS" > "$_keyfile"
 
+  dim "Formatting vault..."
   cryptsetup luksFormat \
     --type luks2 \
     --batch-mode \
     --key-file="$_keyfile" \
     "$ROOT_PART"
+  ok "Vault formatted."
 
+  dim "Opening vault..."
   cryptsetup open \
     --batch-mode \
     --key-file="$_keyfile" \
     "$ROOT_PART" \
     "$MAPPER"
+  ok "Vault open."
 
   shred -u "$_keyfile"
 
@@ -814,17 +820,20 @@ detect_nvidia() {
 
 patch_luks_config() {
   if ! $LUKS_ENABLED; then return; fi
+  CURRENT_STEP="XVI"
 
   hdr "XVI. SEALING THE BOOT VAULT"
-  say "Binding the hull seal to the boot sequence. The passphrase will be\n  requested at ignition."
   echo ""
 
-  # nixos-generate-config may have detected LUKS — check and supplement if not
   local hw_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/hardware-configuration.nix"
   if ! grep -q "luks" "$hw_file"; then
-    # Inject LUKS config before the final closing brace
-    sed -i "s|^}$|  boot.initrd.luks.devices.\"${MAPPER}\" = {\n    device = \"/dev/disk/by-uuid/${LUKS_UUID}\";\n    allowDiscards = true;\n  };\n\n}|" \
-      "$hw_file"
+    # Strip the closing } and append LUKS config + closing }
+    local tmp
+    tmp=$(mktemp)
+    head -n -1 "$hw_file" > "$tmp"
+    printf '\n  boot.initrd.luks.devices."%s" = {\n    device = "/dev/disk/by-uuid/%s";\n    allowDiscards = true;\n  };\n\n}\n' \
+      "$MAPPER" "$LUKS_UUID" >> "$tmp"
+    mv "$tmp" "$hw_file"
     ok "Hull seal patched into boot configuration."
   else
     ok "Hull seal already present in hardware configuration."
