@@ -24,7 +24,7 @@ HAS_NVIDIA=false
 IS_VM=false
 CURRENT_STEP="startup"
 LOGFILE="/tmp/nixeko-install.log"
-STEPS_TOTAL=18
+STEPS_TOTAL=17
 SPINNER_PID=""
 
 # ── Colors (NES palette) ──────────────────────────────────────────────────────
@@ -129,31 +129,31 @@ on_error() {
       warn "Could not load the manifest. Disk space?"
       dim "Check:  df -h /mnt"
       ;;
-    "XIV:hardware-scan")
+    "XIII:hardware-scan")
       warn "nixos-generate-config failed."
       dim "Is /mnt mounted?  mount | grep /mnt"
       dim "Is /mnt/boot mounted?  mount | grep boot"
       ;;
-    "XIV:hostname-patch")
+    "XIII:hostname-patch")
       warn "Could not patch hostname — host config file missing."
       dim "Expected:  hosts/${PROFILE}/default.nix"
       dim "Did copy_repo succeed?  ls /mnt/home/${CAPTAIN}/Projects/nixeko/hosts/"
       ;;
-    "XIV:hardware-config-copy")
+    "XIII:hardware-config-copy")
       warn "Could not copy hardware-configuration.nix."
       dim "Did nixos-generate-config write to /mnt/etc/nixos/?"
       dim "Check:  ls /mnt/etc/nixos/"
       ;;
-    "XIV:flake-patch")
+    "XIII:flake-patch")
       warn "Could not patch flake.nix."
       dim "Check:  ls /mnt/home/${CAPTAIN}/Projects/nixeko/flake.nix"
       ;;
-    "XVI")
+    "XV")
       warn "Failed to patch LUKS config into hardware-configuration.nix."
       dim "Check:  cat /mnt/home/${CAPTAIN}/Projects/nixeko/hosts/${PROFILE}/hardware-configuration.nix"
       dim "UUID:   ${LUKS_UUID}"
       ;;
-    "XVII")
+    "XVI")
       warn "nixos-install failed. The error above has the full story."
       echo ""
       dim "Common causes:"
@@ -168,7 +168,7 @@ on_error() {
       dim "  nixos-install --no-root-passwd \\"
       dim "    --flake \"/mnt/home/${CAPTAIN}/Projects/nixeko#${PROFILE}\""
       ;;
-    "XVIII")
+    "XVII")
       warn "Password setup failed. Set it manually:"
       dim "  nixos-enter --root /mnt"
       dim "  passwd ${CAPTAIN}"
@@ -827,8 +827,8 @@ setup_vpn() {
 # ── Step 11: Chart the vessel ─────────────────────────────────────────────────
 
 generate_config() {
-  CURRENT_STEP="XIV:hardware-scan"
-  hdr 14 "CHARTING THE VESSEL"
+  CURRENT_STEP="XIII:hardware-scan"
+  hdr 13 "CHARTING THE VESSEL"
   say "Scanning ship systems... cataloguing drives, engines, memory cells..."
   echo ""
 
@@ -838,7 +838,7 @@ generate_config() {
   ok "Hardware manifest generated."
 
   # Patch hostname
-  CURRENT_STEP="XIV:hostname-patch"
+  CURRENT_STEP="XIII:hostname-patch"
   local host_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/default.nix"
   if [[ ! -f "$host_file" ]]; then
     err "Host config not found: ${host_file}\n  Did copy_repo succeed? Is PROFILE='${PROFILE}' correct?"
@@ -848,13 +848,13 @@ generate_config() {
   ok "Ship registered as: ${BLD}${SHIP_NAME}${RST}"
 
   # Copy generated hardware-configuration.nix into the nixeko repo
-  CURRENT_STEP="XIV:hardware-config-copy"
+  CURRENT_STEP="XIII:hardware-config-copy"
   cp /mnt/etc/nixos/hardware-configuration.nix \
     "/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/hardware-configuration.nix"
   ok "Hardware configuration captured."
 
   # Patch flake.nix — inject hardware module if detected
-  CURRENT_STEP="XIV:flake-patch"
+  CURRENT_STEP="XIII:flake-patch"
   local flake="/mnt/home/$CAPTAIN/Projects/nixeko/flake.nix"
   if [[ -n "$HW_MODULE" ]]; then
     sed -i "s|# NIXOS_HARDWARE: none|nixos-hardware.nixosModules.${HW_MODULE}|g" "$flake"
@@ -872,7 +872,7 @@ generate_config() {
 detect_nvidia() {
   $HAS_NVIDIA || return 0
 
-  hdr 15 "TWIN ENGINES"
+  hdr 14 "TWIN ENGINES"
   say "Probing the drive systems... listening for the twin engines..."
   echo ""
 
@@ -902,9 +902,9 @@ detect_nvidia() {
 
 patch_luks_config() {
   if ! $LUKS_ENABLED; then return; fi
-  CURRENT_STEP="XVI"
+  CURRENT_STEP="XV"
 
-  hdr 16 "SEALING THE BOOT VAULT"
+  hdr 15 "SEALING THE BOOT VAULT"
   echo ""
 
   local hw_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/hardware-configuration.nix"
@@ -925,8 +925,8 @@ patch_luks_config() {
 # ── Step 14: Launch ───────────────────────────────────────────────────────────
 
 run_install() {
-  CURRENT_STEP="XVII"
-  hdr 17 "IGNITION"
+  CURRENT_STEP="XVI"
+  hdr 16 "IGNITION"
   say "All systems nominal. The ${SHIP_NAME} draws her first breath."
   echo ""
   dim "This will take a while. Nix is downloading and building the full system."
@@ -949,8 +949,8 @@ run_install() {
 # ── Set user password ─────────────────────────────────────────────────────────
 
 set_password() {
-  CURRENT_STEP="XVIII"
-  hdr 18 "THE CAPTAIN'S SEAL"
+  CURRENT_STEP="XVII"
+  hdr 17 "THE CAPTAIN'S SEAL"
   say "Set your login password for captain ${BLD}${CAPTAIN}${RST}${ITL}${DIM}."
   echo ""
 
@@ -1064,7 +1064,6 @@ main() {
   format_and_mount
   copy_repo
   patch_username
-  setup_vpn
   generate_config
   detect_nvidia
   patch_luks_config
