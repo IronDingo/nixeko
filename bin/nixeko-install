@@ -43,21 +43,25 @@ read_secret() {
   local __var="$1"
   local __pass=""
   local __char
-  printf '  ' >/dev/tty
-  while IFS= read -r -s -n1 __char </dev/tty; do
+  local __tty
+  __tty=$(tty 2>/dev/null || echo /dev/tty)
+  stty -echo <"$__tty" 2>/dev/null || true   # kill echo BEFORE any input
+  printf '  ' >"$__tty"
+  while IFS= read -r -s -n1 __char <"$__tty"; do
     if [[ -z "$__char" ]]; then
       break
     elif [[ "$__char" == $'\x7f' || "$__char" == $'\b' ]]; then
       if [[ -n "$__pass" ]]; then
         __pass="${__pass%?}"
-        printf '\b \b' >/dev/tty
+        printf '\b \b' >"$__tty"
       fi
     else
       __pass+="$__char"
-      printf "${CYN}✦${RST}" >/dev/tty
+      printf "${CYN}✦${RST}" >"$__tty"
     fi
   done
-  printf '\n' >/dev/tty
+  stty echo <"$__tty" 2>/dev/null || true    # restore echo after
+  printf '\n' >"$__tty"
   printf -v "$__var" '%s' "$__pass"
 }
 
@@ -511,7 +515,13 @@ format_and_mount() {
   say "The chambers take shape. Floors, walls, the spaces between."
   echo ""
 
-  mkfs.fat -F 32 -n EFI "$EFI_PART" >/dev/null
+  # Full cleanup — graphical ISO mounts everything it sees
+  umount -R /mnt 2>/dev/null || true
+  umount "$EFI_PART" 2>/dev/null || true
+  umount "$ROOT_PART" 2>/dev/null || true
+  udevadm settle
+
+  mkfs.fat -F 32 -n EFI "$EFI_PART"
   ok "EFI formatted."
 
   if $LUKS_ENABLED; then
@@ -736,22 +746,47 @@ run_install() {
 
 set_password() {
   hdr "XVIII. THE CAPTAIN'S SEAL"
-  say "Set the password for captain ${BLD}${CAPTAIN}${RST}${ITL}${DIM}.\n  This is your login password."
+  say "Set your login password for captain ${BLD}${CAPTAIN}${RST}${ITL}${DIM}."
   echo ""
+
   while true; do
     prompt "Password:"
     read_secret _pw1
     prompt "Confirm:"
     read_secret _pw2
-    if [[ "$_pw1" == "$_pw2" ]]; then
-      [[ ${#_pw1} -ge 4 ]] || { warn "Too short (min 4 chars)."; continue; }
-      echo "$CAPTAIN:$_pw1" | nixos-enter --root /mnt -- chpasswd
-      ok "Password set for captain ${CAPTAIN}."
-      break
-    else
+    if [[ "$_pw1" != "$_pw2" ]]; then
       warn "Passwords do not match. Try again."
+      continue
     fi
+    [[ ${#_pw1} -ge 4 ]] || { warn "Too short (min 4 chars)."; continue; }
+    printf '%s:%s\n' "$CAPTAIN" "$_pw1" | nixos-enter --root /mnt -- chpasswd
+    ok "Password set for ${CAPTAIN}."
+    break
   done
+
+  echo ""
+  say "Set a root password? Useful for recovery from TTY.\n  If skipped, use sudo with your user password instead."
+  echo ""
+  prompt "Set root password? [y/N]:"
+  read -r root_pw_choice
+  if [[ "${root_pw_choice,,}" == "y" ]]; then
+    while true; do
+      prompt "Root password:"
+      read_secret _rp1
+      prompt "Confirm:"
+      read_secret _rp2
+      if [[ "$_rp1" != "$_rp2" ]]; then
+        warn "Passwords do not match. Try again."
+        continue
+      fi
+      [[ ${#_rp1} -ge 4 ]] || { warn "Too short (min 4 chars)."; continue; }
+      printf 'root:%s\n' "$_rp1" | nixos-enter --root /mnt -- chpasswd
+      ok "Root password set."
+      break
+    done
+  else
+    dim "Root login disabled. Use: sudo -i"
+  fi
 }
 
 # ── Farewell ──────────────────────────────────────────────────────────────────
