@@ -6,10 +6,9 @@
     home-manager     = { url = "github:nix-community/home-manager"; inputs.nixpkgs.follows = "nixpkgs"; };
     nixos-hardware.url = "github:nixos/nixos-hardware";
     stylix.url       = "github:danth/stylix";
-    nur.url          = "github:nix-community/NUR";
   };
 
-  outputs = { self, nixpkgs, home-manager, nixos-hardware, stylix, nur, ... }:
+  outputs = { self, nixpkgs, home-manager, nixos-hardware, stylix, ... }:
   let
     # Wrap a home config file into the home-manager module format.
     # CHANGE: replace "eko" with your username (also update each hosts/*/default.nix)
@@ -22,7 +21,6 @@
     # Core system modules — shared by all profiles
     coreModules = [
       stylix.nixosModules.stylix
-      nur.nixosModules.nur
       ./modules/system/base.nix
       ./modules/system/theme.nix
       ./modules/system/security.nix
