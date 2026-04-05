@@ -173,5 +173,74 @@ nixeko rescue           recovery reference
 
 ---
 
+## Themes
+
+`nixeko theme <name>` — switches and rebuilds.
+
+| Name | Palette |
+|------|---------|
+| `nes` | NES palette (default) — bundled in `themes/nes.yaml` |
+| `gameboy` | classic green Game Boy |
+| `gruvbox-dark-hard` | warm retro amber/green |
+| `vice` | Commodore 64 blue |
+| `catppuccin-mocha` | purple/blue pastels |
+| `tokyo-night-dark` | tokyo night |
+| `nord` | arctic blue-grey |
+| `rose-pine` | warm rose/pine |
+| `kanagawa` | japanese ink |
+| `everforest-dark-hard` | forest green |
+| `oxocarbon-dark` | deep IBM carbon |
+
+Browse all: https://github.com/tinted-theming/schemes
+
+---
+
+## Keybinds
+
+| Keybind | Action |
+|---------|--------|
+| Super+Return | Terminal (alacritty) |
+| Super+Alt+Space | Walker launcher |
+| Super+Q | Close window |
+| Super+F | Fullscreen |
+| Super+V | Float window |
+| Super+Shift+B | Firefox |
+| Super+Shift+N | Neovim |
+| Super+Shift+O | Obsidian |
+| Super+Shift+G | Signal |
+| Super+Shift+M | Spotify |
+| Super+Shift+T | btop |
+| Super+Shift+D | Docker compose menu |
+| Super+Shift+Ctrl+L | Lazydocker |
+| Super+Shift+S | SearXNG (localhost:8888) |
+| Super+Shift+H | Home server (192.168.1.107) |
+| Super+Shift+F | Jellyfin (localhost:8096) |
+| Super+Shift+A | DeepSeek |
+| Super+Shift+Alt+A | Claude.ai |
+| Super+Shift+Ctrl+A | Local LLM (Ollama + DeepSeek R1) |
+| Super+Shift+E | Proton Mail |
+| Super+Shift+C | Proton Calendar |
+| Super+Shift+Y | YouTube |
+| Super+Shift+Ctrl+D | Nebula |
+| Super+Shift+Ctrl+F | Prime Video |
+| Super+Shift+/ | 1Password |
+| Super+Shift+Alt+S | Screenshot (region) |
+| Super+Shift+Ctrl+V | VPN selector |
+| Super+Shift+Ctrl+P | Pi-hole / SearXNG menu |
+| Super+Shift+Ctrl+Q | Power menu |
+
+---
+
+## Rescue
+
+```bash
+nixeko rescue          # print recovery reference
+nixeko rollback        # revert last change
+nixeko generations     # list all generations
+# Boot menu → Space → select previous generation
+```
+
+---
+
 ## Repo
 `github.com/IronDingo/nixeko` — branch `master`
