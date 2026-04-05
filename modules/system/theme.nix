@@ -31,7 +31,7 @@
     # Change with: nixeko wallpaper <filename>
     image = ../../wallpapers/emerald-07.png;
 
-    base16Scheme = "${pkgs.base16-schemes}/share/themes/nes.yaml";
+    base16Scheme = ../../themes/nes.yaml;
 
     fonts = {
       monospace = {
