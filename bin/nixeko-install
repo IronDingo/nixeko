@@ -9,6 +9,7 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SHIP_NAME=""
+CAPTAIN=""           # unix username
 PROFILE=""           # nixeko | nixeko-dinghy | nixeko-beacon
 TARGET_DISK=""
 ROOT_PART=""
@@ -36,26 +37,28 @@ prompt() { echo -e "${WHT}${BLD}  ›  $*${RST}"; }
 rule()   { echo -e "${DIM}  ────────────────────────────────────────${RST}"; }
 dim()    { echo -e "  ${DIM}$*${RST}"; }
 
-# Read a password — shows ✦ per character, supports backspace
+# Read a password into a named variable — shows ✦ per character, supports backspace
+# Usage: read_secret VARNAME
 read_secret() {
-  local __result=""
-  local char
-  echo -n "  "
-  while IFS= read -r -s -n1 char; do
-    if [[ -z "$char" ]]; then          # Enter
+  local __var="$1"
+  local __pass=""
+  local __char
+  printf '  ' >/dev/tty
+  while IFS= read -r -s -n1 __char </dev/tty; do
+    if [[ -z "$__char" ]]; then
       break
-    elif [[ "$char" == $'\x7f' ]]; then # Backspace
-      if [[ -n "$__result" ]]; then
-        __result="${__result%?}"
-        echo -ne "\b \b"
+    elif [[ "$__char" == $'\x7f' || "$__char" == $'\b' ]]; then
+      if [[ -n "$__pass" ]]; then
+        __pass="${__pass%?}"
+        printf '\b \b' >/dev/tty
       fi
     else
-      __result+="$char"
-      echo -ne "${CYN}✦${RST}"
+      __pass+="$__char"
+      printf "${CYN}✦${RST}" >/dev/tty
     fi
   done
-  echo ""
-  printf '%s' "$__result"
+  printf '\n' >/dev/tty
+  printf -v "$__var" '%s' "$__pass"
 }
 
 # ── Ship art ──────────────────────────────────────────────────────────────────
@@ -152,6 +155,24 @@ name_ship() {
       warn "Lowercase letters, numbers, hyphens only."
     else
       ok "The ${BLD}${SHIP_NAME}${RST}${GRN} awaits commission."
+      break
+    fi
+  done
+
+  echo ""
+  say "And the captain? Your unix username — this becomes your home directory."
+  echo ""
+  while true; do
+    prompt "Captain's name (username):"
+    read -r CAPTAIN
+    CAPTAIN="${CAPTAIN// /-}"
+    CAPTAIN="${CAPTAIN,,}"
+    if [[ -z "$CAPTAIN" ]]; then
+      warn "Every crew needs a captain."
+    elif [[ ! "$CAPTAIN" =~ ^[a-z][a-z0-9-]*$ ]]; then
+      warn "Lowercase letters, numbers, hyphens only. Must start with a letter."
+    else
+      ok "Captain ${BLD}${CAPTAIN}${RST}${GRN} — at your command."
       break
     fi
   done
@@ -373,9 +394,9 @@ choose_encryption() {
     echo ""
     while true; do
       prompt "Passphrase:"
-      LUKS_PASS=$(read_secret)
+      read_secret LUKS_PASS
       prompt "Confirm passphrase:"
-      LUKS_CONFIRM=$(read_secret)
+      read_secret LUKS_CONFIRM
       if [[ "$LUKS_PASS" == "$LUKS_CONFIRM" ]]; then
         [[ ${#LUKS_PASS} -ge 8 ]] || { warn "Passphrase too short (min 8 chars)."; continue; }
         ok "Passphrase set. The hull will be sealed."
@@ -435,6 +456,7 @@ partition_disk() {
   sgdisk -n 2:0:0       -t 2:8300 -c 2:"root" "$TARGET_DISK"
 
   partprobe "$TARGET_DISK" 2>/dev/null || true
+  udevadm settle
   sleep 1
 
   # Derive partition names (handles both /dev/sdX and /dev/nvme0nX)
@@ -459,10 +481,13 @@ seal_hull() {
   say "The vault takes shape. None shall enter without the passphrase."
   echo ""
 
-  # Ensure partition is free — graphical ISO auto-mounts, re-runs leave stale mappings
-  umount "$ROOT_PART" 2>/dev/null || true
+  # Ensure partition is free before formatting
+  # Graphical ISO auto-mounts partitions; re-runs leave stale LUKS mappings
+  umount -R /mnt 2>/dev/null || true
   cryptsetup close "$MAPPER" 2>/dev/null || true
   swapoff "$ROOT_PART" 2>/dev/null || true
+  umount "$ROOT_PART" 2>/dev/null || true
+  udevadm settle
 
   echo -n "$LUKS_PASS" | cryptsetup luksFormat \
     --type luks2 \
@@ -511,9 +536,41 @@ copy_repo() {
   say "The ship's charter — every setting, every configuration — is carried aboard."
   echo ""
 
-  mkdir -p /mnt/home/eko/Projects
-  cp -r "$REPO_DIR" /mnt/home/eko/Projects/nixeko
+  mkdir -p "/mnt/home/$CAPTAIN/Projects"
+  cp -r "$REPO_DIR" "/mnt/home/$CAPTAIN/Projects/nixeko"
   ok "Manifest loaded to ~/Projects/nixeko"
+}
+
+patch_username() {
+  local dest="/mnt/home/$CAPTAIN/Projects/nixeko"
+  [[ "$CAPTAIN" == "eko" ]] && return
+
+  info "Patching username: eko → ${CAPTAIN}..."
+
+  # Files that reference "eko" as a username
+  local files=(
+    "$dest/flake.nix"
+    "$dest/home/eko.nix"
+    "$dest/home/dinghy.nix"
+    "$dest/home/beacon.nix"
+    "$dest/home/scripts.nix"
+    "$dest/hosts/nixeko/default.nix"
+    "$dest/hosts/nixeko-dinghy/default.nix"
+    "$dest/hosts/nixeko-beacon/default.nix"
+    "$dest/hosts/nixeko-vm/default.nix"
+  )
+
+  for f in "${files[@]}"; do
+    [[ -f "$f" ]] && sed -i "s/\beko\b/$CAPTAIN/g" "$f"
+  done
+
+  # Rename home/eko.nix → home/<captain>.nix and update flake reference
+  if [[ -f "$dest/home/eko.nix" ]]; then
+    mv "$dest/home/eko.nix" "$dest/home/$CAPTAIN.nix"
+    sed -i "s|./home/eko.nix|./home/$CAPTAIN.nix|g" "$dest/flake.nix"
+  fi
+
+  ok "Configuration patched for captain: ${CAPTAIN}"
 }
 
 # ── Step 10: VPN provisioning ─────────────────────────────────────────────────
@@ -530,7 +587,7 @@ setup_vpn() {
   fi
 
   local vpn_dir="$REPO_DIR/vpn"
-  local dest_dir="/mnt/home/eko/Projects/nixeko/vpn"
+  local dest_dir="/mnt/home/$CAPTAIN/Projects/nixeko/vpn"
 
   echo ""
   say "Where are your .ovpn files? Provide a path — USB mount, /tmp, anywhere."
@@ -562,7 +619,7 @@ setup_vpn() {
 
   if [[ -n "$vpn_user" ]]; then
     prompt "Enter VPN password:"
-    vpn_pass=$(read_secret)
+    read_secret vpn_pass
     printf '%s\n%s\n' "$vpn_user" "$vpn_pass" > "$dest_dir/credentials"
     chmod 600 "$dest_dir/credentials"
     ok "Credentials stored. The array is armed."
@@ -582,18 +639,18 @@ generate_config() {
   ok "Hardware manifest generated."
 
   # Patch hostname
-  local host_file="/mnt/home/eko/Projects/nixeko/hosts/nixeko/default.nix"
+  local host_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/nixeko/default.nix"
   sed -i "s/networking.hostName = \"[^\"]*\"/networking.hostName = \"${SHIP_NAME}\"/" \
     "$host_file"
   ok "Ship registered as: ${BLD}${SHIP_NAME}${RST}"
 
   # Copy generated hardware-configuration.nix into the nixeko repo
   cp /mnt/etc/nixos/hardware-configuration.nix \
-    /mnt/home/eko/Projects/nixeko/hosts/nixeko/hardware-configuration.nix
+    /mnt/home/$CAPTAIN/Projects/nixeko/hosts/nixeko/hardware-configuration.nix
   ok "Hardware configuration captured."
 
   # Patch flake.nix — inject hardware module if detected
-  local flake="/mnt/home/eko/Projects/nixeko/flake.nix"
+  local flake="/mnt/home/$CAPTAIN/Projects/nixeko/flake.nix"
   if [[ -n "$HW_MODULE" ]]; then
     sed -i "s|# NIXOS_HARDWARE: none|nixos-hardware.nixosModules.${HW_MODULE}|g" "$flake"
     ok "Hardware module patched: ${BLD}${HW_MODULE}${RST}"
@@ -625,7 +682,7 @@ detect_nvidia() {
     intel_nix=$(echo "$intel_id" | awk -F'[:\.]' '{printf "PCI:%d:%d:%d", strtonum("0x"$1), strtonum("0x"$2), strtonum("0x"$3)}')
     nvidia_nix=$(echo "$nvidia_id" | awk -F'[:\.]' '{printf "PCI:%d:%d:%d", strtonum("0x"$1), strtonum("0x"$2), strtonum("0x"$3)}')
 
-    local nvidia_file="/mnt/home/eko/Projects/nixeko/modules/system/nvidia.nix"
+    local nvidia_file="/mnt/home/$CAPTAIN/Projects/nixeko/modules/system/nvidia.nix"
     sed -i "s|intelBusId = \"[^\"]*\"|intelBusId = \"${intel_nix}\"|" "$nvidia_file"
     sed -i "s|nvidiaBusId = \"[^\"]*\"|nvidiaBusId = \"${nvidia_nix}\"|" "$nvidia_file"
 
@@ -647,7 +704,7 @@ patch_luks_config() {
   echo ""
 
   # nixos-generate-config may have detected LUKS — check and supplement if not
-  local hw_file="/mnt/home/eko/Projects/nixeko/hosts/nixeko/hardware-configuration.nix"
+  local hw_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/nixeko/hardware-configuration.nix"
   if ! grep -q "luks" "$hw_file"; then
     # Inject LUKS config before the final closing brace
     sed -i "s|^}$|  boot.initrd.luks.devices.\"${MAPPER}\" = {\n    device = \"/dev/disk/by-uuid/${LUKS_UUID}\";\n    allowDiscards = true;\n  };\n\n}|" \
@@ -667,10 +724,32 @@ run_install() {
 
   nixos-install \
     --no-root-passwd \
-    --flake "/mnt/home/eko/Projects/nixeko#${PROFILE}"
+    --flake "/mnt/home/$CAPTAIN/Projects/nixeko#${PROFILE}"
 
   echo ""
   ok "Installation complete."
+}
+
+# ── Set user password ─────────────────────────────────────────────────────────
+
+set_password() {
+  hdr "XVIII. THE CAPTAIN'S SEAL"
+  say "Set the password for captain ${BLD}${CAPTAIN}${RST}${ITL}${DIM}.\n  This is your login password."
+  echo ""
+  while true; do
+    prompt "Password:"
+    read_secret _pw1
+    prompt "Confirm:"
+    read_secret _pw2
+    if [[ "$_pw1" == "$_pw2" ]]; then
+      [[ ${#_pw1} -ge 4 ]] || { warn "Too short (min 4 chars)."; continue; }
+      echo "$CAPTAIN:$_pw1" | nixos-enter --root /mnt -- chpasswd
+      ok "Password set for captain ${CAPTAIN}."
+      break
+    else
+      warn "Passwords do not match. Try again."
+    fi
+  done
 }
 
 # ── Farewell ──────────────────────────────────────────────────────────────────
@@ -714,11 +793,13 @@ main() {
   seal_hull
   format_and_mount
   copy_repo
+  patch_username
   setup_vpn
   generate_config
   detect_nvidia
   patch_luks_config
   run_install
+  set_password
   farewell
 }
 
