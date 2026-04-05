@@ -157,9 +157,10 @@ on_error() {
       warn "nixos-install failed. The error above has the full story."
       echo ""
       dim "Common causes:"
-      dim "  · Config error  — cd into the repo and run:  nix flake check"
-      dim "  · No network    — check connectivity and retry"
-      dim "  · Disk full     — df -h /mnt"
+      dim "  · Truncated tarball  — network dropped mid-download. Just retry."
+      dim "  · Config error       — run:  nix flake check"
+      dim "  · No network         — check connectivity and retry"
+      dim "  · Disk full          — df -h /mnt"
       echo ""
       dim "To retry without re-running the whole wizard:"
       if $LUKS_ENABLED; then
