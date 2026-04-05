@@ -890,12 +890,35 @@ run_install() {
   echo ""
 
   # Stage all generated/patched files so Nix's git fetcher can see them.
-  # (Nix uses `git ls-files` which includes staged files but not untracked ones.)
   git -C "/mnt/home/$CAPTAIN/Projects/nixeko" add -A 2>/dev/null || true
 
-  nixos-install \
-    --no-root-passwd \
-    --flake "/mnt/home/$CAPTAIN/Projects/nixeko#${PROFILE}"
+  # Infinite retry loop — /mnt stays mounted between attempts so Nix reuses
+  # everything already fetched. Press Enter to retry, q+Enter to quit.
+  local _attempt=0
+  while true; do
+    (( _attempt++ )) || true
+    [[ "$_attempt" -gt 1 ]] && echo ""
+    if nixos-install \
+        --no-root-passwd \
+        --flake "/mnt/home/$CAPTAIN/Projects/nixeko#${PROFILE}"; then
+      break
+    fi
+    echo ""
+    warn "nixos-install exited (attempt ${_attempt})."
+    dim "Already-fetched packages are cached on disk. Only failed downloads will restart."
+    echo ""
+    printf "  ${YLW}→${RST}  Fix any issues, then: ${BLD}[Enter]${RST} retry  ${BLD}[q]${RST} quit  "
+    local _ans
+    read -r _ans
+    if [[ "${_ans,,}" == q* ]]; then
+      err "Aborted by user."
+      return 1
+    fi
+    echo ""
+    dim "Re-staging files and retrying..."
+    git -C "/mnt/home/$CAPTAIN/Projects/nixeko" add -A 2>/dev/null || true
+    echo ""
+  done
 
   echo ""
   ok "Installation complete."
