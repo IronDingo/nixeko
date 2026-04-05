@@ -664,7 +664,7 @@ seal_hull() {
   udevadm settle
 
   local _keyfile
-  _keyfile=$(mktemp)
+  _keyfile=$(umask 077; mktemp)
   trap 'shred -u "$_keyfile" 2>/dev/null || true' RETURN
   printf '%s' "$LUKS_PASS" > "$_keyfile"
 
@@ -688,6 +688,10 @@ seal_hull() {
 
   LUKS_UUID=$(blkid -s UUID -o value "$ROOT_PART")
   ok "Hull sealed. UUID: ${DIM}${LUKS_UUID}${RST}"
+
+  # Wipe passphrase from memory — keyfile already shredded above.
+  LUKS_PASS=""
+  LUKS_CONFIRM=""
 }
 
 # ── Step 8: Lay the decks ─────────────────────────────────────────────────────
@@ -904,14 +908,15 @@ run_install() {
       break
     fi
     echo ""
-    warn "nixos-install exited (attempt ${_attempt})."
-    dim "Already-fetched packages are cached on disk. Only failed downloads will restart."
+    warn "nixos-install stopped (attempt ${_attempt})."
+    dim "Cached packages stay on disk — only what failed will re-download."
+    dim "No rush: fix your network, wait as long as you need, then continue."
     echo ""
-    printf "  ${YLW}→${RST}  Fix any issues, then: ${BLD}[Enter]${RST} retry  ${BLD}[q]${RST} quit  "
+    printf "  ${YLW}→${RST}  ${BLD}[Enter]${RST} to retry   ${BLD}q + Enter${RST} to abort install  "
     local _ans
     read -r _ans
     if [[ "${_ans,,}" == q* ]]; then
-      err "Aborted by user."
+      echo -e "  ${RED}✗${RST}  Aborted." >&2
       return 1
     fi
     echo ""

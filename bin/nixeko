@@ -61,7 +61,7 @@ EOF
 cmd_update() {
   hdr "Updating nixeko"
   info "Pulling flake inputs..."
-  cd "$NIXEKO_DIR" && nix flake update
+  nix flake update --flake "$NIXEKO_DIR"
   info "Rebuilding..."
   sudo nixos-rebuild switch --flake "$FLAKE"
   ok "Done"
@@ -103,6 +103,10 @@ cmd_theme() {
     dim "Browse: https://github.com/tinted-theming/schemes"
     exit 1
   fi
+  if ! [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    err "Invalid theme name: $name (only letters, numbers, - and _ allowed)"
+    exit 1
+  fi
   local theme_file="$NIXEKO_DIR/modules/system/theme.nix"
   local bundled="$NIXEKO_DIR/themes/${name}.yaml"
   info "Switching theme → $name"
@@ -124,7 +128,11 @@ cmd_wallpaper() {
     err "Usage: nixeko wallpaper <filename>"
     echo ""
     dim "Available:"
-    ls "$NIXEKO_DIR/wallpapers/" | sed 's/^/    /'
+    printf '    %s\n' "$NIXEKO_DIR"/wallpapers/*
+    exit 1
+  fi
+  if ! [[ "$name" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
+    err "Invalid wallpaper name: $name (only letters, numbers, ., - and _ allowed)"
     exit 1
   fi
   local wp="$NIXEKO_DIR/wallpapers/$name"
@@ -152,6 +160,10 @@ cmd_install() {
     err "Usage: nixeko install <package>"
     exit 1
   fi
+  if ! [[ "$pkg" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
+    err "Invalid package name: $pkg (only letters, numbers, ., - and _ allowed)"
+    exit 1
+  fi
   local pkgs_file="$NIXEKO_DIR/home/packages.nix"
   info "Adding $pkg to home packages..."
   # Insert before the closing ]; of home.packages
@@ -167,6 +179,10 @@ cmd_remove() {
   local pkg="$1"
   if [ -z "$pkg" ]; then
     err "Usage: nixeko remove <package>"
+    exit 1
+  fi
+  if ! [[ "$pkg" =~ ^[a-zA-Z0-9_.-]+$ ]]; then
+    err "Invalid package name: $pkg (only letters, numbers, ., - and _ allowed)"
     exit 1
   fi
   local pkgs_file="$NIXEKO_DIR/home/packages.nix"
@@ -210,7 +226,7 @@ cmd_doctor() {
   if nvidia-smi &>/dev/null; then
     ok "$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
   else
-    err "nvidia-smi failed — check modules/system/nvidia.nix bus IDs"; ((issues++))
+    err "nvidia-smi failed — check modules/system/nvidia.nix bus IDs"; issues=$(( issues + 1 ))
   fi
 
   # Power profile
@@ -228,7 +244,7 @@ cmd_doctor() {
     cap=$(cat "$bat_path")
     status=$(cat "${bat_path/capacity/status}" 2>/dev/null || echo "")
     if [ "$cap" -lt 15 ]; then
-      err "${cap}% (${status}) — critical"; ((issues++))
+      err "${cap}% (${status}) — critical"; issues=$(( issues + 1 ))
     elif [ "$cap" -lt 30 ]; then
       warn "${cap}% (${status})"
     else
@@ -251,7 +267,7 @@ cmd_doctor() {
   if systemctl is-active --quiet syncthing; then
     ok "running"
   else
-    err "not running"; ((issues++))
+    err "not running"; issues=$(( issues + 1 ))
   fi
 
   # Docker
@@ -314,7 +330,7 @@ cmd_doctor() {
   if [ "$pct" -lt 80 ]; then
     ok "${avail} free (${used} used)"
   else
-    warn "${avail} free (${used} used — getting full)"; ((issues++))
+    warn "${avail} free (${used} used — getting full)"; issues=$(( issues + 1 ))
   fi
 
   # Failed units
@@ -324,7 +340,7 @@ cmd_doctor() {
   if [ "$failed" -eq 0 ]; then
     ok "all clear"
   else
-    err "$failed failed — run: systemctl --failed"; ((issues++))
+    err "$failed failed — run: systemctl --failed"; issues=$(( issues + 1 ))
   fi
 
   # Generations
