@@ -164,6 +164,7 @@ on_error() {
       dim "To retry without re-running the whole wizard:"
       dim "  mount /dev/mapper/${MAPPER} /mnt   (or /dev/${TARGET_DISK##*/}2 if no LUKS)"
       dim "  mount ${EFI_PART:-/dev/...} /mnt/boot"
+      dim "  git -C /mnt/home/${CAPTAIN}/Projects/nixeko add -A"
       dim "  nixos-install --no-root-passwd \\"
       dim "    --flake \"/mnt/home/${CAPTAIN}/Projects/nixeko#${PROFILE}\""
       ;;
@@ -933,9 +934,13 @@ run_install() {
   dim "If it pauses for a minute, it's probably fetching a large package."
   echo ""
 
+  # Stage all generated/patched files so Nix's git fetcher can see them.
+  # (Nix uses `git ls-files` which includes staged files but not untracked ones.)
+  git -C "/mnt/home/$CAPTAIN/Projects/nixeko" add -A 2>/dev/null || true
+
   nixos-install \
     --no-root-passwd \
-    --flake "path:/mnt/home/$CAPTAIN/Projects/nixeko#${PROFILE}"
+    --flake "/mnt/home/$CAPTAIN/Projects/nixeko#${PROFILE}"
 
   echo ""
   ok "Installation complete."
