@@ -33,7 +33,7 @@ ITL='\033[3m';    RST='\033[0m'
 say()    { echo -e "\n${ITL}${DIM}  $*${RST}"; sleep 0.6; }
 ok()     { echo -e "${GRN}  ✓  $*${RST}"; }
 warn()   { echo -e "${YLW}  ⚠  $*${RST}"; }
-err()    { echo -e "${RED}  ✗  $*${RST}" >&2; exit 1; }
+err()    { echo -e "${RED}  ✗  $*${RST}" >&2; cleanup_mounts 2>/dev/null; exit 1; }
 hdr()    { echo -e "\n${BLD}${CYN}  ══  $*  ══${RST}\n"; }
 prompt() { echo -e "${WHT}${BLD}  ›  $*${RST}"; }
 rule()   { echo -e "${DIM}  ────────────────────────────────────────${RST}"; }
@@ -73,9 +73,24 @@ on_error() {
       warn "Could not load the manifest. Disk space?"
       dim "Check:  df -h /mnt"
       ;;
-    "XIV")
-      warn "Hardware scan failed. Is /mnt properly mounted?"
-      dim "Check:  mount | grep /mnt"
+    "XIV:hardware-scan")
+      warn "nixos-generate-config failed."
+      dim "Is /mnt mounted?  mount | grep /mnt"
+      dim "Is /mnt/boot mounted?  mount | grep boot"
+      ;;
+    "XIV:hostname-patch")
+      warn "Could not patch hostname — host config file missing."
+      dim "Expected:  hosts/${PROFILE}/default.nix"
+      dim "Did copy_repo succeed?  ls /mnt/home/${CAPTAIN}/Projects/nixeko/hosts/"
+      ;;
+    "XIV:hardware-config-copy")
+      warn "Could not copy hardware-configuration.nix."
+      dim "Did nixos-generate-config write to /mnt/etc/nixos/?"
+      dim "Check:  ls /mnt/etc/nixos/"
+      ;;
+    "XIV:flake-patch")
+      warn "Could not patch flake.nix."
+      dim "Check:  ls /mnt/home/${CAPTAIN}/Projects/nixeko/flake.nix"
       ;;
     "XVII")
       warn "nixos-install failed. The error above has the full story."
@@ -298,9 +313,8 @@ detect_hardware_module() {
     return
   fi
 
-  local product vendor
+  local product
   product=$(dmidecode -s system-product-name 2>/dev/null | tr '[:upper:]' '[:lower:]' | xargs || echo "")
-  vendor=$(dmidecode -s system-manufacturer 2>/dev/null | tr '[:upper:]' '[:lower:]' | xargs || echo "")
 
   # Known hardware module map
   local detected=""
@@ -405,7 +419,7 @@ select_disk() {
   done
 }
 
-# ── Step 3: Full conquest or shared expanse ───────────────────────────────────
+# ── Step 6: Full conquest or shared expanse ───────────────────────────────────
 
 select_install_mode() {
   hdr "VI. TERRITORY"
@@ -572,16 +586,23 @@ seal_hull() {
   umount "$ROOT_PART" 2>/dev/null || true
   udevadm settle
 
-  echo -n "$LUKS_PASS" | cryptsetup luksFormat \
+  local _keyfile
+  _keyfile=$(mktemp)
+  printf '%s' "$LUKS_PASS" > "$_keyfile"
+
+  cryptsetup luksFormat \
     --type luks2 \
     --batch-mode \
-    --key-file=- \
+    --key-file="$_keyfile" \
     "$ROOT_PART"
 
-  echo -n "$LUKS_PASS" | cryptsetup open \
-    --key-file=- \
+  cryptsetup open \
+    --batch-mode \
+    --key-file="$_keyfile" \
     "$ROOT_PART" \
     "$MAPPER"
+
+  shred -u "$_keyfile"
 
   LUKS_UUID=$(blkid -s UUID -o value "$ROOT_PART")
   ok "Hull sealed. UUID: ${DIM}${LUKS_UUID}${RST}"
@@ -676,7 +697,6 @@ setup_vpn() {
     return
   fi
 
-  local vpn_dir="$REPO_DIR/vpn"
   local dest_dir="/mnt/home/$CAPTAIN/Projects/nixeko/vpn"
 
   echo ""
@@ -721,7 +741,7 @@ setup_vpn() {
 # ── Step 11: Chart the vessel ─────────────────────────────────────────────────
 
 generate_config() {
-  CURRENT_STEP="XIV"
+  CURRENT_STEP="XIV:hardware-scan"
   hdr "XIV. CHARTING THE VESSEL"
   say "Scanning ship systems... cataloguing drives, engines, memory cells..."
   echo ""
@@ -730,24 +750,29 @@ generate_config() {
   ok "Hardware manifest generated."
 
   # Patch hostname
+  CURRENT_STEP="XIV:hostname-patch"
   local host_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/default.nix"
+  if [[ ! -f "$host_file" ]]; then
+    err "Host config not found: ${host_file}\n  Did copy_repo succeed? Is PROFILE='${PROFILE}' correct?"
+  fi
   sed -i "s/networking.hostName = \"[^\"]*\"/networking.hostName = \"${SHIP_NAME}\"/" \
     "$host_file"
   ok "Ship registered as: ${BLD}${SHIP_NAME}${RST}"
 
   # Copy generated hardware-configuration.nix into the nixeko repo
+  CURRENT_STEP="XIV:hardware-config-copy"
   cp /mnt/etc/nixos/hardware-configuration.nix \
     "/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/hardware-configuration.nix"
   ok "Hardware configuration captured."
 
   # Patch flake.nix — inject hardware module if detected
+  CURRENT_STEP="XIV:flake-patch"
   local flake="/mnt/home/$CAPTAIN/Projects/nixeko/flake.nix"
   if [[ -n "$HW_MODULE" ]]; then
     sed -i "s|# NIXOS_HARDWARE: none|nixos-hardware.nixosModules.${HW_MODULE}|g" "$flake"
     ok "Hardware module patched: ${BLD}${HW_MODULE}${RST}"
   fi
 
-  # Patch flake.nix — inject NVIDIA module if selected
   if $HAS_NVIDIA; then
     sed -i "s|# NVIDIA_MODULE: none|./modules/system/nvidia.nix|g" "$flake"
     ok "NVIDIA module patched."
