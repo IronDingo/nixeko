@@ -24,20 +24,73 @@ HAS_NVIDIA=false
 IS_VM=false
 CURRENT_STEP="startup"
 LOGFILE="/tmp/nixeko-install.log"
+STEPS_TOTAL=18
+SPINNER_PID=""
 
-# ── Colors ────────────────────────────────────────────────────────────────────
-RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'; BLU='\033[0;34m'
-CYN='\033[0;36m'; WHT='\033[1;37m'; DIM='\033[2m'; BLD='\033[1m'
-ITL='\033[3m';    RST='\033[0m'
+# ── Colors (NES palette) ──────────────────────────────────────────────────────
+RED='\033[0;31m'; GRN='\033[0;32m'; YLW='\033[1;33m'
+CYN='\033[0;36m'; WHT='\033[1;37m'; DIM='\033[2m'
+BLD='\033[1m';    ITL='\033[3m';    RST='\033[0m'
 
-say()    { echo -e "\n${ITL}${DIM}  $*${RST}"; sleep 0.6; }
+# ── Output helpers ────────────────────────────────────────────────────────────
+say()    { echo -e "\n${ITL}${DIM}  $*${RST}"; sleep 0.4; }
 ok()     { echo -e "${GRN}  ✓  $*${RST}"; }
 warn()   { echo -e "${YLW}  ⚠  $*${RST}"; }
 err()    { echo -e "${RED}  ✗  $*${RST}" >&2; cleanup_mounts 2>/dev/null; exit 1; }
-hdr()    { echo -e "\n${BLD}${CYN}  ══  $*  ══${RST}\n"; }
-prompt() { echo -e "${WHT}${BLD}  ›  $*${RST}"; }
+prompt() { echo -e "\n${WHT}${BLD}  ›  $*${RST}"; }
 rule()   { echo -e "${DIM}  ────────────────────────────────────────${RST}"; }
 dim()    { echo -e "  ${DIM}$*${RST}"; }
+
+# ── Progress bar ──────────────────────────────────────────────────────────────
+_pbar() {
+  local n=$1 total=$2 width=22 i filled bar=""
+  filled=$(( n * width / total ))
+  for ((i=0; i<filled; i++));     do bar+="█"; done
+  for ((i=filled; i<width; i++)); do bar+="░"; done
+  echo -e "  ${DIM}[${CYN}${bar}${DIM}]  ${n}/${total}${RST}"
+}
+
+# ── Section header — hdr N "TITLE" ───────────────────────────────────────────
+_roman() {
+  local -a R=('' I II III IV V VI VII VIII IX X XI XII XIII XIV XV XVI XVII XVIII)
+  echo "${R[$1]}"
+}
+
+hdr() {
+  local n=$1; shift
+  stop_spinner
+  echo -e "\n${BLD}${CYN}  ══  $(_roman "$n"). $*  ══${RST}"
+  _pbar "$n" "$STEPS_TOTAL"
+  echo ""
+}
+
+# ── Spinner ───────────────────────────────────────────────────────────────────
+_SF=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+
+start_spinner() {
+  local msg="$1"
+  local tty; tty=$(tty 2>/dev/null || echo /dev/tty)
+  stop_spinner
+  (
+    local i=0
+    while true; do
+      printf "\r  ${CYN}%s${RST}  ${DIM}%s${RST}" "${_SF[$((i%10))]}" "$msg" >"$tty"
+      sleep 0.08
+      (( i++ )) || true
+    done
+  ) &
+  SPINNER_PID=$!
+  disown "$SPINNER_PID" 2>/dev/null || true
+}
+
+stop_spinner() {
+  [[ -z "${SPINNER_PID:-}" ]] && return 0
+  kill "$SPINNER_PID" 2>/dev/null || true
+  wait "$SPINNER_PID" 2>/dev/null || true
+  SPINNER_PID=""
+  local tty; tty=$(tty 2>/dev/null || echo /dev/tty)
+  printf "\r\033[2K" >"$tty"
+}
 
 # ── Error handling ────────────────────────────────────────────────────────────
 
@@ -48,9 +101,12 @@ cleanup_mounts() {
 
 on_error() {
   local line="$1"
+  stop_spinner
   echo ""
-  echo -e "${RED}${BLD}  ✗  The commission was interrupted.${RST}"
-  echo -e "${DIM}  Step ${CURRENT_STEP}  ·  line ${line}${RST}"
+  echo -e "  ${RED}${BLD}╔══════════════════════════════════════════════╗${RST}"
+  echo -e "  ${RED}${BLD}║  ✗  Commission interrupted                   ║${RST}"
+  echo -e "  ${RED}${BLD}╚══════════════════════════════════════════════╝${RST}"
+  echo -e "  ${DIM}  step ${CURRENT_STEP}  ·  line ${line}${RST}"
   echo ""
   cleanup_mounts
   echo ""
@@ -122,14 +178,14 @@ on_error() {
   esac
   echo ""
   if [[ -f "$LOGFILE" ]]; then
-    echo -e "${DIM}  ── last 20 lines of log ─────────────────────────────────────${RST}"
-    tail -20 "$LOGFILE" | sed 's/\x1b\[[0-9;]*m//g' | sed 's/^/  /'
-    echo -e "${DIM}  ─────────────────────────────────────────────────────────────${RST}"
+    echo -e "  ${DIM}── last log lines ─────────────────────────────────────────────${RST}"
+    tail -20 "$LOGFILE" | sed 's/\x1b\[[0-9;]*m//g' | sed 's/^/    /'
+    echo -e "  ${DIM}───────────────────────────────────────────────────────────────${RST}"
     echo ""
     dim "Full log: ${LOGFILE}"
   fi
   echo ""
-  say "Mounts cleared. Run the wizard again when ready."
+  dim "Mounts cleared. Run the wizard again when ready."
   echo ""
 }
 
@@ -190,15 +246,30 @@ SHIP
   echo -e "  ${BLD}${WHT}N I X E K O${RST}  ${DIM}— ship commissioning protocol${RST}"
   echo ""
   rule
+  echo ""
+  dim "What this wizard does:"
+  dim "  ·  Partition your drive (and optionally encrypt it)"
+  dim "  ·  Install NixOS with your chosen profile"
+  dim "  ·  Configure theming, VPN, users, and services"
+  echo ""
+  dim "  8 questions  ·  ~10 automated steps  ·  20–40 min total"
+  echo ""
+  rule
+  echo ""
 }
 
 farewell_art() {
   local name="$1"
+  echo -e "${GRN}"
+  cat << 'STARS'
+
+    ✦   ·  ✦   ·   ✦      ·   ✦   ·  ✦   ·   ✦
+  ·   ✦   ·   ✦   ·   ✦   ·   ✦   ·   ✦   ·   ✦  ·
+    ✦   ·  ✦   ·   ✦      ·   ✦   ·  ✦   ·   ✦
+
+STARS
   echo -e "${CYN}"
   cat << 'SHIP'
-
-     ✦  ·   ✦         ✦   ·  ✦        ✦
-
              ▄▄▄███████████████▄▄▄
            ▄██▓▓░░░░░░░░░░░░░░▓▓██▄
           ██▓░░   ◈     ◈     ◈  ░░▓██
@@ -209,12 +280,9 @@ farewell_art() {
        ▀████████████████████████████████▀
           ██░░░░░░░░░░░░░░░░░░░░░░░░██
            ▀▀████████▀    ▀████████▀▀
-
-     ✦        ·   ✦  ·        ✦   ·  ✦
-
 SHIP
   echo -e "${RST}"
-  echo -e "  ${BLD}${WHT}${name}${RST}  ${DIM}— commissioned and ready${RST}"
+  echo -e "  ${GRN}${BLD}✓  ${name} — commissioned and ready${RST}"
   echo ""
 }
 
@@ -243,7 +311,7 @@ check_environment() {
 # ── Step 1: Name your ship ─────────────────────────────────────────────────────
 
 name_ship() {
-  hdr "I. THE VESSEL"
+  hdr 1 "THE VESSEL"
   say "Every ship that crosses the expanse carries a name. Whispered in logs,\n  etched in manifests. Yours will echo further than you know."
   echo ""
   while true; do
@@ -283,7 +351,7 @@ name_ship() {
 # ── Step 2: Choose your loadout ───────────────────────────────────────────────
 
 select_profile() {
-  hdr "II. THE LOADOUT"
+  hdr 2 "THE LOADOUT"
   say "What kind of vessel are you commissioning?"
   echo ""
   echo -e "    ${BLD}1${RST}  ${CYN}nixeko${RST}         Full Hyprland — all stations manned. ${DIM}(default)${RST}"
@@ -309,7 +377,7 @@ detect_hardware_module() {
   # Skip for beacon (headless — hardware modules less critical)
   [[ "$PROFILE" == "nixeko-beacon" ]] && return
 
-  hdr "III. HULL SCAN"
+  hdr 3 "HULL SCAN"
   say "Reading the machine's manifest. Identifying the hull class..."
   echo ""
 
@@ -372,7 +440,7 @@ detect_nvidia_question() {
   [[ "$PROFILE" == "nixeko-beacon" ]] && return
   $IS_VM && return
 
-  hdr "IV. ENGINE ROOM"
+  hdr 4 "ENGINE ROOM"
   say "Does this vessel carry twin engines? Intel iGPU + NVIDIA GPU (hybrid / Optimus)?"
   echo ""
 
@@ -399,7 +467,7 @@ detect_nvidia_question() {
 # ── Step 5: Choose the expanse ────────────────────────────────────────────────
 
 select_disk() {
-  hdr "V. THE EXPANSE"
+  hdr 5 "THE EXPANSE"
   say "The substrate stretches before you. Choose where the ${SHIP_NAME} shall be carved."
   echo ""
   echo -e "  ${DIM}Available drives:${RST}"
@@ -427,7 +495,7 @@ select_disk() {
 # ── Step 6: Full conquest or shared expanse ───────────────────────────────────
 
 select_install_mode() {
-  hdr "VI. TERRITORY"
+  hdr 6 "TERRITORY"
   say "Will the ${SHIP_NAME} claim the entire expanse, or sail alongside another?"
   echo ""
   echo -e "    ${BLD}1${RST}  Full conquest   — entire drive is yours. All prior data lost."
@@ -483,7 +551,7 @@ select_install_mode() {
 # ── Step 4: Hull integrity ─────────────────────────────────────────────────────
 
 choose_encryption() {
-  hdr "VII. HULL INTEGRITY"
+  hdr 7 "HULL INTEGRITY"
   say "The vault can be sealed. No force may breach it without the passphrase.\n  Recommended. The expanse is not always friendly."
   echo ""
   prompt "Seal the hull with encryption? [Y/n]:"
@@ -514,7 +582,7 @@ choose_encryption() {
 # ── Step 5: Final confirmation ────────────────────────────────────────────────
 
 confirm_plan() {
-  hdr "VIII. FINAL MANIFEST"
+  hdr 8 "FINAL MANIFEST"
   say "Before the commission begins, review the charter."
   echo ""
   echo -e "    ${BLD}Ship name${RST}     ${CYN}${SHIP_NAME}${RST}"
@@ -548,18 +616,18 @@ confirm_plan() {
 partition_disk() {
   if [[ "$INSTALL_MODE" != "full" ]]; then return; fi
   CURRENT_STEP="IX"
-  hdr "IX. SHAPING THE VOID"
+  hdr 9 "SHAPING THE VOID"
   say "The expanse yields to form. Carving decks and holds..."
   echo ""
 
-  # Wipe and create GPT
+  start_spinner "Partitioning ${TARGET_DISK}..."
   sgdisk --zap-all "$TARGET_DISK"
   sgdisk -n 1:0:+512M  -t 1:ef00 -c 1:"EFI"  "$TARGET_DISK"
   sgdisk -n 2:0:0       -t 2:8300 -c 2:"root" "$TARGET_DISK"
-
   partprobe "$TARGET_DISK" 2>/dev/null || true
   udevadm settle
   sleep 1
+  stop_spinner
 
   # Derive partition names (handles both /dev/sdX and /dev/nvme0nX)
   if [[ "$TARGET_DISK" == *"nvme"* || "$TARGET_DISK" == *"mmc"* ]]; then
@@ -579,7 +647,7 @@ partition_disk() {
 seal_hull() {
   if ! $LUKS_ENABLED; then return; fi
   CURRENT_STEP="X"
-  hdr "X. SEALING THE HULL"
+  hdr 10 "SEALING THE HULL"
   echo ""
 
   umount -R /mnt 2>/dev/null || true
@@ -592,21 +660,21 @@ seal_hull() {
   _keyfile=$(mktemp)
   printf '%s' "$LUKS_PASS" > "$_keyfile"
 
-  dim "Formatting vault..."
+  start_spinner "Formatting vault..."
   cryptsetup luksFormat \
     --type luks2 \
     --batch-mode \
     --key-file="$_keyfile" \
     "$ROOT_PART"
-  ok "Vault formatted."
+  stop_spinner; ok "Vault formatted."
 
-  dim "Opening vault..."
+  start_spinner "Opening vault..."
   cryptsetup open \
     --batch-mode \
     --key-file="$_keyfile" \
     "$ROOT_PART" \
     "$MAPPER"
-  ok "Vault open."
+  stop_spinner; ok "Vault open."
 
   shred -u "$_keyfile"
 
@@ -618,7 +686,7 @@ seal_hull() {
 
 format_and_mount() {
   CURRENT_STEP="XI"
-  hdr "XI. LAYING THE DECKS"
+  hdr 11 "LAYING THE DECKS"
   say "The chambers take shape. Floors, walls, the spaces between."
   echo ""
 
@@ -628,21 +696,30 @@ format_and_mount() {
   umount "$ROOT_PART" 2>/dev/null || true
   udevadm settle
 
+  start_spinner "Formatting EFI partition..."
   mkfs.fat -F 32 -n EFI "$EFI_PART"
+  stop_spinner
   ok "EFI formatted."
 
   if $LUKS_ENABLED; then
+    start_spinner "Formatting root (inside vault)..."
     mkfs.ext4 -L nixeko "/dev/mapper/${MAPPER}" >/dev/null
+    stop_spinner
     ok "Root formatted (inside vault)."
+    start_spinner "Mounting..."
     mount "/dev/mapper/${MAPPER}" /mnt
   else
+    start_spinner "Formatting root partition..."
     mkfs.ext4 -L nixeko "$ROOT_PART" >/dev/null
+    stop_spinner
     ok "Root formatted."
+    start_spinner "Mounting..."
     mount "$ROOT_PART" /mnt
   fi
 
   mkdir -p /mnt/boot
   mount "$EFI_PART" /mnt/boot
+  stop_spinner
   ok "Decks mounted."
 }
 
@@ -650,12 +727,14 @@ format_and_mount() {
 
 copy_repo() {
   CURRENT_STEP="XII"
-  hdr "XII. LOADING THE MANIFEST"
+  hdr 12 "LOADING THE MANIFEST"
   say "The ship's charter — every setting, every configuration — is carried aboard."
   echo ""
 
   mkdir -p "/mnt/home/$CAPTAIN/Projects"
+  start_spinner "Copying nixeko to ~/Projects/nixeko..."
   cp -r "$REPO_DIR" "/mnt/home/$CAPTAIN/Projects/nixeko"
+  stop_spinner
   ok "Manifest loaded to ~/Projects/nixeko"
 }
 
@@ -693,7 +772,7 @@ patch_username() {
 # ── Step 10: VPN provisioning ─────────────────────────────────────────────────
 
 setup_vpn() {
-  hdr "XIII. THE CLOAKING ARRAY"
+  hdr 13 "THE CLOAKING ARRAY"
   say "A ship that moves unseen moves safely. The array accepts any OpenVPN\n  configuration — ProtonVPN, Mullvad, your own. Or skip and add later."
   echo ""
   prompt "Set up VPN now? [y/N]:"
@@ -748,11 +827,13 @@ setup_vpn() {
 
 generate_config() {
   CURRENT_STEP="XIV:hardware-scan"
-  hdr "XIV. CHARTING THE VESSEL"
+  hdr 14 "CHARTING THE VESSEL"
   say "Scanning ship systems... cataloguing drives, engines, memory cells..."
   echo ""
 
+  start_spinner "Scanning hardware..."
   nixos-generate-config --root /mnt
+  stop_spinner
   ok "Hardware manifest generated."
 
   # Patch hostname
@@ -788,9 +869,9 @@ generate_config() {
 # ── Step 12: Detect engines ───────────────────────────────────────────────────
 
 detect_nvidia() {
-  $HAS_NVIDIA || return
+  $HAS_NVIDIA || return 0
 
-  hdr "XV. TWIN ENGINES"
+  hdr 15 "TWIN ENGINES"
   say "Probing the drive systems... listening for the twin engines..."
   echo ""
 
@@ -822,7 +903,7 @@ patch_luks_config() {
   if ! $LUKS_ENABLED; then return; fi
   CURRENT_STEP="XVI"
 
-  hdr "XVI. SEALING THE BOOT VAULT"
+  hdr 16 "SEALING THE BOOT VAULT"
   echo ""
 
   local hw_file="/mnt/home/$CAPTAIN/Projects/nixeko/hosts/${PROFILE}/hardware-configuration.nix"
@@ -844,7 +925,7 @@ patch_luks_config() {
 
 run_install() {
   CURRENT_STEP="XVII"
-  hdr "XVII. IGNITION"
+  hdr 17 "IGNITION"
   say "All systems nominal. The ${SHIP_NAME} draws her first breath."
   echo ""
   dim "This will take a while. Nix is downloading and building the full system."
@@ -864,7 +945,7 @@ run_install() {
 
 set_password() {
   CURRENT_STEP="XVIII"
-  hdr "XVIII. THE CAPTAIN'S SEAL"
+  hdr 18 "THE CAPTAIN'S SEAL"
   say "Set your login password for captain ${BLD}${CAPTAIN}${RST}${ITL}${DIM}."
   echo ""
 
@@ -917,6 +998,27 @@ farewell() {
     cp "$LOGFILE" "/mnt/home/$CAPTAIN/nixeko-install.log" 2>/dev/null || true
   fi
 
+  # Summary table
+  local enc_label nv_label
+  $LUKS_ENABLED && enc_label="encrypted" || enc_label="none"
+  $HAS_NVIDIA   && nv_label="yes"        || nv_label="no"
+  echo ""
+  echo -e "  ${DIM}╔════════════════════════════════════════╗${RST}"
+  echo -e "  ${DIM}║${RST}  ${DIM}ship        ${RST}  ${BLD}${CYN}${SHIP_NAME}${RST}"
+  echo -e "  ${DIM}║${RST}  ${DIM}profile     ${RST}  ${WHT}${PROFILE}${RST}"
+  echo -e "  ${DIM}║${RST}  ${DIM}captain     ${RST}  ${WHT}${CAPTAIN}${RST}"
+  echo -e "  ${DIM}║${RST}  ${DIM}disk        ${RST}  ${WHT}${TARGET_DISK}${RST}"
+  if $LUKS_ENABLED; then
+    echo -e "  ${DIM}║${RST}  ${DIM}encryption  ${RST}  ${GRN}${enc_label}${RST}"
+  else
+    echo -e "  ${DIM}║${RST}  ${DIM}encryption  ${RST}  ${DIM}${enc_label}${RST}"
+  fi
+  if $HAS_NVIDIA; then
+    echo -e "  ${DIM}║${RST}  ${DIM}nvidia      ${RST}  ${GRN}${nv_label}${RST}"
+  else
+    echo -e "  ${DIM}║${RST}  ${DIM}nvidia      ${RST}  ${DIM}${nv_label}${RST}"
+  fi
+  echo -e "  ${DIM}╚════════════════════════════════════════╝${RST}"
   echo ""
   rule
   farewell_art "$SHIP_NAME"
