@@ -35,6 +35,8 @@
     xwayland.enable = true;
   };
 
+  xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-hyprland ];
+
   nix = {
     settings = {
       experimental-features = [ "nix-command" "flakes" ];

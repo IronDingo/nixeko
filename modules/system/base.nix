@@ -21,13 +21,11 @@
     noto-fonts-emoji
   ];
 
-  # XDG portals for Hyprland
+  # XDG portals — GTK portal for all profiles
+  # Hyprland-specific portal added in hosts/nixeko/default.nix
   xdg.portal = {
     enable = true;
-    extraPortals = with pkgs; [
-      xdg-desktop-portal-hyprland
-      xdg-desktop-portal-gtk
-    ];
+    extraPortals = with pkgs; [ xdg-desktop-portal-gtk ];
   };
 
   # Polkit for GUI auth prompts
@@ -38,12 +36,6 @@
 
   # Firmware updates
   services.fwupd.enable = true;
-
-  # Printing
-  services.printing = {
-    enable = true;
-    drivers = with pkgs; [ cups-filters ];
-  };
 
   # Bluetooth
   hardware.bluetooth = {

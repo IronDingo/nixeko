@@ -36,6 +36,9 @@
     xwayland.enable = true;
   };
 
+  # Hyprland XDG portal (supplements the GTK portal set in base.nix)
+  xdg.portal.extraPortals = [ pkgs.xdg-desktop-portal-hyprland ];
+
   # 1Password — needs special system integration
   programs._1password.enable = true;
   programs._1password-gui = {

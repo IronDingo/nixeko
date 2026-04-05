@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, pkgs, lib, ... }:
 
 {
   # Kernel hardening
@@ -54,13 +54,13 @@
   # Don't lock account after failed attempts (avoids the issue you had)
   security.pam.services.sudo.failDelay = { enable = true; delay = 3000000; };
 
-  # SSH — disable password auth, key only
+  # SSH — secure defaults. Hosts that need SSH (e.g. beacon) set enable = true.
   services.openssh = {
-    enable = false; # disabled by default, enable when needed
+    enable = lib.mkDefault false;
     settings = {
-      PasswordAuthentication = false;
-      PermitRootLogin = "no";
-      X11Forwarding = false;
+      PasswordAuthentication = lib.mkDefault false;
+      PermitRootLogin = lib.mkDefault "no";
+      X11Forwarding = lib.mkDefault false;
     };
   };
 
