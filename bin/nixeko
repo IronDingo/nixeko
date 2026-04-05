@@ -104,9 +104,13 @@ cmd_theme() {
     exit 1
   fi
   local theme_file="$NIXEKO_DIR/modules/system/theme.nix"
+  local bundled="$NIXEKO_DIR/themes/${name}.yaml"
   info "Switching theme → $name"
-  sed -i "s|base16Scheme = \"\${pkgs.base16-schemes}/share/themes/[^\"]*\"|base16Scheme = \"\${pkgs.base16-schemes}/share/themes/${name}.yaml\"|" \
-    "$theme_file"
+  if [[ -f "$bundled" ]]; then
+    sed -i "s|base16Scheme = [^;]*;|base16Scheme = ../../themes/${name}.yaml;|" "$theme_file"
+  else
+    sed -i "s|base16Scheme = [^;]*;|base16Scheme = \"\${pkgs.base16-schemes}/share/themes/${name}.yaml\";|" "$theme_file"
+  fi
   info "Rebuilding..."
   sudo nixos-rebuild switch --flake "$FLAKE"
   ok "Theme: $name"
@@ -281,10 +285,8 @@ cmd_doctor() {
 
   # VPN credentials
   chk "VPN credentials"
-  if [ -f /etc/openvpn/vpn-credentials ]; then
-    ok "/etc/openvpn/vpn-credentials"
-  elif [ -f "$NIXEKO_DIR/vpn/credentials" ]; then
-    warn "file exists but not deployed — run: nixeko rebuild"
+  if [ -f "$NIXEKO_DIR/vpn/credentials" ]; then
+    ok "credentials present"
   else
     warn "not configured — see: $NIXEKO_DIR/vpn/README.md"
   fi

@@ -162,7 +162,12 @@ on_error() {
       dim "  · Disk full     — df -h /mnt"
       echo ""
       dim "To retry without re-running the whole wizard:"
-      dim "  mount /dev/mapper/${MAPPER} /mnt   (or /dev/${TARGET_DISK##*/}2 if no LUKS)"
+      if $LUKS_ENABLED; then
+        dim "  cryptsetup open /dev/${TARGET_DISK##*/}2 ${MAPPER}"
+        dim "  mount /dev/mapper/${MAPPER} /mnt"
+      else
+        dim "  mount /dev/${TARGET_DISK##*/}2 /mnt"
+      fi
       dim "  mount ${EFI_PART:-/dev/...} /mnt/boot"
       dim "  git -C /mnt/home/${CAPTAIN}/Projects/nixeko add -A"
       dim "  nixos-install --no-root-passwd \\"
@@ -473,7 +478,7 @@ select_disk() {
   echo ""
   echo -e "  ${DIM}Available drives:${RST}"
   echo ""
-  lsblk -d -o NAME,SIZE,MODEL,ROTA --noheadings | while read -r name size model rota; do
+  lsblk -d -e 7,11 -o NAME,SIZE,MODEL,ROTA --noheadings | while read -r name size model rota; do
     local type="SSD"
     [[ "$rota" == "1" ]] && type="HDD"
     printf "    ${BLD}%-10s${RST}  ${CYN}%8s${RST}  ${DIM}%-30s  %s${RST}\n" \
@@ -659,6 +664,7 @@ seal_hull() {
 
   local _keyfile
   _keyfile=$(mktemp)
+  trap 'shred -u "$_keyfile" 2>/dev/null || true' RETURN
   printf '%s' "$LUKS_PASS" > "$_keyfile"
 
   start_spinner "Formatting vault..."
@@ -737,6 +743,8 @@ copy_repo() {
   cp -r "$REPO_DIR" "/mnt/home/$CAPTAIN/Projects/nixeko"
   stop_spinner
   ok "Manifest loaded to ~/Projects/nixeko"
+  # Ensure the user owns their home directory on first boot
+  chown -R 1000:100 "/mnt/home/$CAPTAIN" 2>/dev/null || true
 }
 
 patch_username() {
@@ -768,60 +776,6 @@ patch_username() {
   fi
 
   ok "Configuration ready for captain: ${CAPTAIN}"
-}
-
-# ── Step 10: VPN provisioning ─────────────────────────────────────────────────
-
-setup_vpn() {
-  hdr 13 "THE CLOAKING ARRAY"
-  say "A ship that moves unseen moves safely. The array accepts any OpenVPN\n  configuration — ProtonVPN, Mullvad, your own. Or skip and add later."
-  echo ""
-  prompt "Set up VPN now? [y/N]:"
-  read -r vpn_choice
-  if [[ "${vpn_choice,,}" != "y" ]]; then
-    say "The cloaking array stands by. Configure later via vpn/README.md."
-    return
-  fi
-
-  local dest_dir="/mnt/home/$CAPTAIN/Projects/nixeko/vpn"
-
-  echo ""
-  say "Where are your .ovpn files? Provide a path — USB mount, /tmp, anywhere."
-  say "Leave blank to skip and add manually after install."
-  echo ""
-  prompt "Path to .ovpn files (directory or leave blank):"
-  read -r ovpn_path
-
-  if [[ -n "$ovpn_path" ]]; then
-    if [[ -d "$ovpn_path" ]]; then
-      local count
-      count=$(find "$ovpn_path" -maxdepth 1 -name "*.ovpn" | wc -l)
-      if [[ "$count" -eq 0 ]]; then
-        warn "No .ovpn files found in ${ovpn_path}. Skipping."
-      else
-        cp "$ovpn_path"/*.ovpn "$dest_dir/configs/"
-        ok "${count} config(s) loaded into the array."
-      fi
-    else
-      warn "Directory not found: ${ovpn_path}. Skipping configs."
-    fi
-  fi
-
-  echo ""
-  say "Credentials bind the array to your account.\n  For ProtonVPN: use your OpenVPN credentials (not your login password).\n  Found at account.proton.me → VPN → Downloads → OpenVPN credentials."
-  echo ""
-  prompt "Enter VPN username (or leave blank to skip):"
-  read -r vpn_user
-
-  if [[ -n "$vpn_user" ]]; then
-    prompt "Enter VPN password:"
-    read_secret vpn_pass
-    printf '%s\n%s\n' "$vpn_user" "$vpn_pass" > "$dest_dir/credentials"
-    chmod 600 "$dest_dir/credentials"
-    ok "Credentials stored. The array is armed."
-  else
-    say "No credentials set. Add them later to vpn/credentials."
-  fi
 }
 
 # ── Step 11: Chart the vessel ─────────────────────────────────────────────────
@@ -954,6 +908,7 @@ set_password() {
   say "Set your login password for captain ${BLD}${CAPTAIN}${RST}${ITL}${DIM}."
   echo ""
 
+  local _pw1 _pw2
   while true; do
     prompt "Password:"
     read_secret _pw1
@@ -975,6 +930,7 @@ set_password() {
   prompt "Set root password? [y/N]:"
   read -r root_pw_choice
   if [[ "${root_pw_choice,,}" == "y" ]]; then
+    local _rp1 _rp2
     while true; do
       prompt "Root password:"
       read_secret _rp1
