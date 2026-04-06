@@ -175,7 +175,7 @@ nixos-rebuild switch --rollback
 ## just want the config?
 
 If you already have NixOS installed and just want to apply this configuration,
-see **[dotfiles](https://github.com/IronDingo/dotfiles)** — same config,
+see **[dotfiles](https://github.com/IronDingo/nixeko-dotfiles)** — same config,
 no installer, three commands to apply.
 
 ---
