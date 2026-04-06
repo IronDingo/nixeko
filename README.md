@@ -1,180 +1,183 @@
-# nixeko
+```
+ __   __ ____  ____  ____  ____  __
+ \ \ / // ___||  __||  __||  __||  |
+  \ V / \___ \|___ \|___ \|___ \|  |
+   \_/  |____/|____/|____/|____/|__|
 
-A self-contained NixOS configuration. Clone it, run the installer, get a complete system.
+  commission your NixOS system
+```
 
-Hyprland. Stylix theming. ProtonVPN. Pi-hole. SearXNG. One CLI to manage it all.
-
----
-
-## Stack
-
-| Layer | Choice |
-|---|---|
-| OS | NixOS unstable |
-| WM | Hyprland |
-| Bar | Waybar |
-| Launcher | Walker |
-| Terminal | Alacritty |
-| Editor | Neovim (LazyVim) + Sublime Text 4 |
-| Shell | Bash + Starship |
-| Theming | Stylix (base16) |
-| DNS | Pi-hole (Docker) |
-| Search | SearXNG (Docker, localhost:8888) |
-| VPN | ProtonVPN via OpenVPN |
-| Mesh | Tailscale |
-| Sync | Syncthing |
+**vessel** is a guided NixOS installer and daily-driver management CLI.
+Boot the ISO, answer a few questions, walk away with a working system.
+No manual partitioning. No config editing before install. No surprises.
 
 ---
 
-## Forking
+## what it gives you
 
-nixeko uses `eko` as the username throughout. Before installing as your own:
-
-1. Rename `home/eko.nix` to `home/<yourname>.nix`
-2. Update `flake.nix` — change `users.eko` and the import path
-3. Update `hosts/nixeko/default.nix` — change `users.users.eko` and the `polkitPolicyOwners`
-4. Set your git identity in `home/shell.nix`
-5. Set your timezone in `hosts/nixeko/default.nix`
-
-Or just leave `eko` — it's a username, not an identity.
+- **Interactive install wizard** — disk, encryption, username, NVIDIA detection, nixos-hardware
+- **Four profiles** to choose from at install time
+- **Stylix theming** — eight base16 themes, switch with one command
+- **Home Manager** — packages, shell, Hyprland, Waybar, Neovim, all declarative
+- **`vessel` CLI** — rebuild, update, rollback, theme switching, health checks
+- **Proper parameterization** — username, hostname, GPU config live in one Nix file, not scattered sed targets
 
 ---
 
-## Install
+## profiles
 
-Boot a NixOS installer USB, then:
+```
+nixeko          Full Hyprland desktop. The main event.
+nixeko-dinghy   BSPWM. Lean, X11, fast.
+nixeko-beacon   Headless. SSH only. No display server.
+nixeko-vm       QEMU test target. Same config, virtual hardware.
+```
 
-> **Graphical ISO:** ignore the Calamares GUI installer — open the terminal emulator instead (it's in the taskbar or app menu), then run:
+---
+
+## install
+
+You need a NixOS ISO. The minimal one works fine.
 
 ```bash
+# 1. Boot the NixOS ISO on your target machine
+
+# 2. Get internet (wifi: nmtui  or  iwctl)
+
+# 3. Clone and run the wizard
 nix-shell -p git
 git clone https://github.com/IronDingo/nixeko
-sudo bash nixeko/bin/nixeko-install
+cd nixeko
+sudo bash bin/nixeko-install
 ```
 
-> **Minimal ISO:** you're already in a terminal. Same commands.
+The wizard walks you through:
 
-The wizard handles partitioning, LUKS encryption, NVIDIA detection, and first boot setup. Name your ship.
+```
+  ┌──────────────────────────────────────────────┐
+  │  I.    Name your ship        (hostname)       │
+  │  II.   Name the captain      (username)       │
+  │  III.  Choose your profile                    │
+  │  IV.   Detect hardware module                 │
+  │  V.    NVIDIA?                                │
+  │  VI.   Select target disk                     │
+  │  VII.  Install mode  (full / dual-boot)       │
+  │  VIII. Encryption?   (LUKS)                   │
+  │  IX.   Confirm → install                      │
+  └──────────────────────────────────────────────┘
+```
+
+Installation downloads the full system closure. A good connection takes
+15–30 minutes. If the download drops, press **Enter** to retry — cached
+packages stay on disk. Type `q` to abort.
 
 ---
 
-## CLI
+## after the first boot
 
 ```bash
-nixeko update          # flake update + rebuild
-nixeko rebuild         # rebuild and switch
+nixeko doctor          # health check — see what needs attention
+nixeko theme nes       # switch theme (nes is the default)
+nixeko rebuild         # rebuild after editing config
+nixeko update          # update flake inputs + rebuild
 nixeko rollback        # revert to previous generation
-nixeko generations     # list all generations
-
-nixeko theme <name>    # switch base16 theme + rebuild
-nixeko wallpaper <f>   # switch wallpaper + rebuild
-nixeko install <pkg>   # add package + rebuild
-nixeko remove <pkg>    # remove package + rebuild
-
-nixeko doctor          # full system health check
-nixeko rescue          # recovery reference
+nixeko clean           # garbage collect old generations
 ```
 
 ---
 
-## Themes
+## themes
 
-Switch with `nixeko theme <name>`:
-
-| Name | Palette |
-|---|---|
-| `nes` | NES palette (default) |
-| `catppuccin-mocha` | purple pastels |
-| `gruvbox-dark-hard` | warm amber |
-| `nord` | arctic blue |
-| `tokyo-night-dark` | tokyo night |
-| `rose-pine` | warm rose |
-| `kanagawa` | japanese ink |
-| `gameboy` | classic green |
+```bash
+nixeko theme nes                # NES palette             ← default
+nixeko theme catppuccin-mocha   # purple pastels
+nixeko theme gruvbox-dark-hard  # warm amber
+nixeko theme nord               # arctic blue
+nixeko theme tokyo-night-dark   # tokyo night
+nixeko theme rose-pine          # warm rose
+nixeko theme kanagawa           # japanese ink
+nixeko theme gameboy            # classic green
+```
 
 ---
 
-## Key bindings
+## customising
 
-| Keys | Action |
-|---|---|
-| Super+Alt+Space | Walker launcher |
-| Super+Return | Terminal |
-| Super+Shift+B | Firefox |
-| Super+Shift+N | Neovim |
-| Super+Shift+O | Obsidian |
-| Super+Shift+G | Signal |
-| Super+Shift+M | Spotify |
-| Super+Shift+T | btop |
-| Super+Shift+D | Docker compose menu |
-| Super+Shift+Ctrl+L | Lazydocker |
-| Super+Shift+A | DeepSeek |
-| Super+Shift+Alt+A | Claude AI |
-| Super+Shift+Ctrl+A | Local LLM (Ollama) |
-| Super+Shift+E | Proton Mail |
-| Super+Shift+C | Proton Calendar |
-| Super+Shift+/ | 1Password |
-| Super+Shift+Alt+S | Screenshot (region) |
-| Super+Shift+Ctrl+V | VPN selector |
-| Super+Shift+Ctrl+P | Pi-hole / SearXNG |
-| Super+Shift+Ctrl+Q | Power menu |
-
----
-
-## Structure
+Everything lives at `~/Projects/nixeko` after install.
 
 ```
 nixeko/
-├── flake.nix                   # inputs + host definitions
-├── bin/
-│   ├── nixeko                  # management CLI
-│   └── nixeko-install          # install wizard
 ├── hosts/
-│   ├── nixeko/                 # main host (auto-generated hardware config)
-│   └── nixeko-vm/              # QEMU test host
-├── modules/system/
-│   ├── base.nix                # audio, fonts, docker, syncthing
-│   ├── theme.nix               # Stylix + wallpaper
-│   ├── nvidia.nix              # Intel + NVIDIA PRIME offload
-│   ├── networking.nix          # NetworkManager, DNS-over-TLS, Pi-hole
-│   ├── security.nix            # firewall, AppArmor, polkit
-│   ├── services.nix            # system services
-│   └── vpn.nix                 # ProtonVPN (auto-loads vpn/configs/*.ovpn)
+│   └── <profile>/
+│       └── params.nix        ← username, hostname, GPU settings
 ├── home/
-│   ├── packages.nix            # user packages
-│   ├── shell.nix               # bash, starship, alacritty, git, fzf, zoxide
-│   ├── hyprland.nix            # hyprland + hypridle + hyprlock
-│   ├── waybar.nix              # status bar
-│   ├── walker.nix              # launcher + SearXNG integration
-│   ├── neovim.nix              # LazyVim bootstrap
-│   └── scripts.nix             # menus, Nautilus bookmarks
-├── docker/
-│   ├── pihole/                 # Pi-hole compose
-│   └── searxng/                # SearXNG compose + settings
-├── vpn/
-│   ├── configs/                # normalized ProtonVPN ovpn files
-│   └── credentials             # ProtonVPN login
-└── wallpapers/                 # 24 retro wallpapers
+│   ├── packages.nix          ← add / remove packages
+│   ├── hyprland.nix          ← keybinds, monitor config
+│   └── ...
+├── modules/system/           ← system-level config
+├── themes/                   ← base16 yaml files
+└── wallpapers/               ← drop .png files here
+```
+
+Add a package:
+```bash
+nixeko install ripgrep
+```
+
+Remove a package:
+```bash
+nixeko remove ripgrep
+```
+
+Or edit `home/packages.nix` directly, then `nixeko rebuild`.
+
+---
+
+## keybinds (quick reference)
+
+```
+Super + Enter               Terminal
+Super + Alt + Space         Launcher (walker)
+Super + Shift + B           Firefox
+Super + Shift + N           Neovim
+Super + Shift + O           Obsidian
+Super + Q                   Close window
+Super + F                   Fullscreen
+Super + V                   Float toggle
+
+Super + Shift + Ctrl + V    VPN menu
+Super + Shift + Ctrl + P    Pi-hole menu
+Super + Shift + Ctrl + Q    Power menu
 ```
 
 ---
 
-## After first boot
+## recovery
+
+If something breaks:
 
 ```bash
-# Start Docker services
-cd ~/Projects/nixeko/docker/pihole  && cp .env.example .env  # set PIHOLE_PASSWORD
-cd ~/Projects/nixeko/docker/searxng && docker compose up -d
-cd ~/Projects/nixeko/docker/pihole  && docker compose up -d
+# From TTY (Ctrl+Alt+F2):
+nixeko rollback
 
-# Connect VPN
-nixeko doctor   # check everything is healthy
+# Won't boot? At the systemd-boot menu, select a previous generation.
+
+# Nuclear option (boot ISO, mount, chroot):
+cryptsetup open /dev/sdXY nixeko-vault
+mount /dev/mapper/nixeko-vault /mnt
+mount /dev/sdX1 /mnt/boot
+nixos-enter --root /mnt
+nixos-rebuild switch --rollback
 ```
 
 ---
 
-## Docs
+## just want the config?
 
-- [TESTING.md](TESTING.md) — validate in a VM before deploying to real hardware
-- [docs/post-install.md](docs/post-install.md) — everything to do after first boot
-- [docs/vpn.md](docs/vpn.md) — VPN setup, backup, and reinstall guide
+If you already have NixOS installed and just want to apply this configuration,
+see **[dotfiles](https://github.com/IronDingo/dotfiles)** — same config,
+no installer, three commands to apply.
+
+---
+
+> *The ship does not ask why you sail. It asks only that you do.*
